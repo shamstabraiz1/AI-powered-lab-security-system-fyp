@@ -4,6 +4,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import TemplateView
+
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -63,7 +65,11 @@ urlpatterns = [
 
     # Registered Router ViewSet API Endpoints
     path("api/", include(router.urls)),
+
+    # Frontend Single Page Web App Index Route
+    path("", TemplateView.as_view(template_name="index.html"), name="index"),
 ]
+
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
