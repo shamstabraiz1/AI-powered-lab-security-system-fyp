@@ -17,11 +17,34 @@ export const LoginPage = () => {
     setError('');
     setLoading(true);
 
+    console.log('[LOGIN PAGE] Form submitted for user:', username, 'Role:', role);
+
     try {
       await login({ username, password, role });
+      console.log('[LOGIN PAGE] Login successful. Navigating to /dashboard');
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Authentication failed. Please check credentials.');
+      console.error('[LOGIN PAGE] Authentication Error:', err);
+
+      // Extract specific backend error messages
+      const apiData = err.response?.data;
+      let errorMsg = 'Authentication failed. Please check credentials.';
+
+      if (typeof apiData === 'string') {
+        errorMsg = apiData;
+      } else if (apiData?.detail) {
+        errorMsg = apiData.detail;
+      } else if (apiData?.non_field_errors) {
+        errorMsg = Array.isArray(apiData.non_field_errors) ? apiData.non_field_errors.join(' ') : apiData.non_field_errors;
+      } else if (apiData?.username) {
+        errorMsg = `Username: ${Array.isArray(apiData.username) ? apiData.username.join(' ') : apiData.username}`;
+      } else if (apiData?.password) {
+        errorMsg = `Password: ${Array.isArray(apiData.password) ? apiData.password.join(' ') : apiData.password}`;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -45,7 +68,7 @@ export const LoginPage = () => {
         </div>
 
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold text-center">
+          <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold text-center leading-relaxed">
             {error}
           </div>
         )}
@@ -104,7 +127,7 @@ export const LoginPage = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition"
+            className="w-full py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2 transition disabled:opacity-50"
           >
             <KeyRound className="w-4 h-4" /> {loading ? 'Authenticating...' : 'Authenticate & Access Portal'}
           </button>
