@@ -11,6 +11,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,10 +22,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-#+(lgqb8y59!obn7%!rx@pfnbmd==r&2-7q9s*e@+%pni1pjp@'
+SECRET_KEY = config('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config('DEBUG', cast=bool)
 
 ALLOWED_HOSTS = []
 
@@ -31,16 +33,39 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    # Django Apps
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # Third-Party Apps
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'django_filters',
+    'drf_spectacular',
+    'corsheaders',
+    'channels',
+
+    # Local Apps
+    'core',
+    'labs',
+    'cameras',
+    'assets',
+    'monitoring',
+    'incidents',
+    'evidence',
+    'notifications',
+    'ai_engine',
+    'reference',
 ]
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -74,8 +99,12 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER'),
+        'PASSWORD': config('DB_PASSWORD'),
+        'HOST': config('DB_HOST'),
+        'PORT': config('DB_PORT'),
     }
 }
 
@@ -120,3 +149,82 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ----------------------------
+# Django REST Framework
+# ----------------------------
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ),
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'AI Powered Lab Security System API',
+    'DESCRIPTION': 'Enterprise REST API specification and interactive OpenAPI/Swagger documentation.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+
+
+# ----------------------------
+# CORS
+# ----------------------------
+CORS_ALLOW_ALL_ORIGINS = True
+
+# ----------------------------
+# Channels
+# ----------------------------
+ASGI_APPLICATION = 'config.asgi.application'
+
+import os
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+
+# ----------------------------
+# AI / YOLO Settings
+# ----------------------------
+YOLO_MODEL = config('YOLO_MODEL', default=os.path.join(BASE_DIR, 'yolov8m.pt'))
+YOLO_CONFIDENCE = config('YOLO_CONFIDENCE', default=0.25, cast=float)
+MONITOR_INTERVAL_SECONDS = config('MONITOR_INTERVAL_SECONDS', default=2.0, cast=float)
+VERIFICATION_FRAMES = config('VERIFICATION_FRAMES', default=3, cast=int)
+
+# ----------------------------
+# Video Evidence Settings
+# ----------------------------
+PRE_EVENT_BUFFER_SECONDS = config('PRE_EVENT_BUFFER_SECONDS', default=10, cast=int)
+POST_EVENT_RECORD_SECONDS = config('POST_EVENT_RECORD_SECONDS', default=10, cast=int)
+VIDEO_FPS = config('VIDEO_FPS', default=20, cast=int)
+VIDEO_CODEC = config('VIDEO_CODEC', default='mp4v')
+
+# ----------------------------
+# Notification Settings
+# ----------------------------
+NOTIFICATION_COOLDOWN_SECONDS = config('NOTIFICATION_COOLDOWN_SECONDS', default=300, cast=int)
+
+
+
+
+
