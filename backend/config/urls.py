@@ -23,6 +23,7 @@ from core.views import AnalyticsAPIView, DashboardAPIView, UserProfileAPIView
 from evidence.views import EvidenceViewSet
 from incidents.views import IncidentViewSet
 from labs.views import LabViewSet
+from monitoring.views import LabSessionViewSet
 from notifications.views import NotificationViewSet
 from reference.views import ReferenceAssetViewSet, ReferenceProfileViewSet
 
@@ -36,6 +37,8 @@ router.register(r"reference-assets", ReferenceAssetViewSet, basename="reference-
 router.register(r"incidents", IncidentViewSet, basename="incident")
 router.register(r"evidence", EvidenceViewSet, basename="evidence")
 router.register(r"notifications", NotificationViewSet, basename="notification")
+router.register(r"sessions", LabSessionViewSet, basename="session")
+
 
 urlpatterns = [
     # Admin Interface
