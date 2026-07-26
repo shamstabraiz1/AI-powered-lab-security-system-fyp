@@ -2,7 +2,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../utils/constants';
 
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -18,7 +18,7 @@ api.interceptors.request.use(
 
     if (token && !isAuthEndpoint) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('[API Request] Attached Bearer token to headers.');
+      console.log('[API Request] Attached Bearer token.');
     } else {
       delete config.headers.Authorization;
     }
@@ -54,7 +54,7 @@ api.interceptors.response.use(
       if (refreshToken) {
         try {
           console.log('[API Auth] Attempting access token refresh...');
-          const res = await axios.post(`${API_BASE_URL}/api/auth/token/refresh/`, {
+          const res = await axios.post(`${API_BASE_URL}/auth/token/refresh/`, {
             refresh: refreshToken,
           });
 

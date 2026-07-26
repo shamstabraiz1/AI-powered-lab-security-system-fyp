@@ -23,11 +23,11 @@ export const AppRoutes = () => {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/monitoring" element={<LiveMonitoringPage />} />
-          <Route path="/reference" element={<ReferenceProfilesPage />} />
           <Route path="/incidents" element={<IncidentsPage />} />
           <Route path="/evidence" element={<EvidencePage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/reference" element={<ReferenceProfilesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Route>

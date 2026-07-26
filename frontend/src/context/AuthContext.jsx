@@ -11,24 +11,23 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem('access_token'));
   const [loading, setLoading] = useState(true);
 
-  // Restore or verify user profile on initial load / refresh
+  // Session persistence on initial load / page refresh
   useEffect(() => {
     const initAuth = async () => {
       const storedToken = localStorage.getItem('access_token');
       if (storedToken) {
-        console.log('[AUTH Context] Initializing stored session token:', storedToken.substring(0, 15) + '...');
+        console.log('[AUTH Context] Restoring session from stored token...');
         try {
           const profile = await authService.getUserProfile();
           setUser(profile);
           localStorage.setItem('user_profile', JSON.stringify(profile));
-          console.log('[AUTH Context] Restored profile on load:', profile.username);
+          console.log('[AUTH Context] Profile restored:', profile.username);
         } catch (err) {
-          console.warn('[AUTH Context] Could not refresh profile on load. Using stored profile fallback:', err);
+          console.warn('[AUTH Context] Profile load warning. Using cached profile or fallback:', err);
           const savedProfile = localStorage.getItem('user_profile');
           if (savedProfile) {
             setUser(JSON.parse(savedProfile));
           } else {
-            // Default fallback user if token is present
             setUser({ username: 'admin_user', roles: ['Lab Instructor'] });
           }
         }
@@ -46,7 +45,7 @@ export const AuthProvider = ({ children }) => {
 
     // 1. Post to JWT token endpoint
     const data = await authService.login({ username, password });
-    
+
     if (!data.access || !data.refresh) {
       throw new Error('Backend token response missing access or refresh token.');
     }
@@ -60,11 +59,11 @@ export const AuthProvider = ({ children }) => {
     // 3. Attempt to fetch profile from /api/auth/profile/
     let userProfile = null;
     try {
-      console.log('[AUTH Context] Requesting authenticated profile from /api/auth/profile/...');
+      console.log('[AUTH Context] Requesting profile from /auth/profile/...');
       userProfile = await authService.getUserProfile();
-      console.log('[AUTH Context] Profile fetched successfully:', userProfile);
+      console.log('[AUTH Context] Profile fetched:', userProfile);
     } catch (profileErr) {
-      console.warn('[AUTH Context] Profile request failed. Creating fallback user object:', profileErr);
+      console.warn('[AUTH Context] Profile request fallback:', profileErr);
       userProfile = {
         username: username,
         email: `${username}@se.edu.pk`,
@@ -75,13 +74,13 @@ export const AuthProvider = ({ children }) => {
     // 4. Save user profile state
     setUser(userProfile);
     localStorage.setItem('user_profile', JSON.stringify(userProfile));
-    console.log('[AUTH Context] Auth flow complete. Navigating to dashboard.');
+    console.log('[AUTH Context] Login complete.');
 
     return data;
   };
 
   const logout = () => {
-    console.log('[AUTH Context] Clearing tokens and user state for logout.');
+    console.log('[AUTH Context] Logging out and purging session tokens.');
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     localStorage.removeItem('user_profile');

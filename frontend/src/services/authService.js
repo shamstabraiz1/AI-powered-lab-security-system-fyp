@@ -5,7 +5,7 @@ export const authService = {
     // Send ONLY username and password to Django SimpleJWT endpoint
     const payload = { username, password };
     console.log('[AUTH Service] Posting credentials payload to /auth/token/:', { username, password: '***' });
-    
+
     const response = await api.post('/auth/token/', payload);
     console.log('[AUTH Service] Received token response:', response.data);
     return response.data;
