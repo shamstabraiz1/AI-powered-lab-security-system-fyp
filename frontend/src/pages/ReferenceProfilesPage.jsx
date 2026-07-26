@@ -19,9 +19,6 @@ import {
   CheckCircle,
   Image as ImageIcon,
   Download,
-  Eye,
-  RefreshCw,
-  Layers,
   Wand2,
   ShieldCheck,
   Search,
@@ -34,10 +31,9 @@ export const ReferenceProfilesPage = () => {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
-  const [selectedProfileDetail, setSelectedProfileDetail] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
 
-  // 1. Queries
+  // Queries
   const { data: profilesData, isLoading } = useQuery({
     queryKey: ['reference-profiles'],
     queryFn: () => referenceService.getReferenceProfiles(),
@@ -62,18 +58,14 @@ export const ReferenceProfilesPage = () => {
     setTimeout(() => setToastMessage(''), 4000);
   };
 
-  // 2. Mutations
+  // Mutations
   const activateMutation = useMutation({
     mutationFn: (id) => referenceService.activateProfile(id),
     onSuccess: (data) => {
-      console.log('[REFERENCE PAGE] Activate Success:', data);
       queryClient.invalidateQueries({ queryKey: ['reference-profiles'] });
       showToast(data.message || 'Reference Profile activated successfully!');
     },
-    onError: (err) => {
-      console.error('[REFERENCE PAGE] Activate Error:', err);
-      alert('Failed to activate profile.');
-    },
+    onError: () => alert('Failed to activate profile.'),
   });
 
   const deleteMutation = useMutation({
@@ -82,10 +74,7 @@ export const ReferenceProfilesPage = () => {
       queryClient.invalidateQueries({ queryKey: ['reference-profiles'] });
       showToast('Reference Profile deleted.');
     },
-    onError: (err) => {
-      console.error('[REFERENCE PAGE] Delete Error:', err);
-      alert('Failed to delete reference profile.');
-    },
+    onError: () => alert('Failed to delete reference profile.'),
   });
 
   const handleActivate = (prof) => {
@@ -103,28 +92,11 @@ export const ReferenceProfilesPage = () => {
   const filteredProfiles = profilesList.filter((p) => {
     const term = search.toLowerCase();
     return (
-      p.name.toLowerCase().includes(term) ||
+      (p.name && p.name.toLowerCase().includes(term)) ||
       (p.lab_details?.name && p.lab_details.name.toLowerCase().includes(term)) ||
       (p.created_by && p.created_by.toLowerCase().includes(term))
     );
   });
-
-  const galleryImages = [
-    {
-      id: 1,
-      cameraName: 'Cam 1: Overhead Main',
-      labName: 'SE AI Lab 1',
-      date: new Date().toLocaleDateString(),
-      assetCount: 60,
-    },
-    {
-      id: 2,
-      cameraName: 'Cam 2: Desk Array',
-      labName: 'SE AI Lab 1',
-      date: new Date(Date.now() - 86400000).toLocaleDateString(),
-      assetCount: 30,
-    },
-  ];
 
   return (
     <PageContainer>
@@ -176,77 +148,60 @@ export const ReferenceProfilesPage = () => {
 
       {/* Reference Profiles Data Table */}
       <Card title="Reference Baseline Profiles" subtitle="Only one Reference Profile can be Active per laboratory at any given time">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
-                <th className="p-3">Profile Name</th>
-                <th className="p-3">Laboratory</th>
-                <th className="p-3">Created By</th>
-                <th className="p-3">Created Date</th>
-                <th className="p-3">Cameras</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {filteredProfiles.map((prof) => (
-                <tr key={prof.id} className="hover:bg-slate-800/40 transition">
-                  <td className="p-3 font-bold text-white font-heading">{prof.name}</td>
-                  <td className="p-3 font-semibold text-cyan-400">{prof.lab_details?.name || 'SE AI Lab 1'}</td>
-                  <td className="p-3 text-slate-300">{prof.created_by || 'Dr. Tabraiz Shams'}</td>
-                  <td className="p-3 font-mono text-[11px] text-slate-400">{new Date(prof.created_at || Date.now()).toLocaleDateString()}</td>
-                  <td className="p-3 font-mono text-[11px] text-slate-300">{prof.cameras_count ?? 1} Camera(s)</td>
-                  <td className="p-3">
-                    <Badge variant={prof.is_active ? 'success' : 'slate'} dot>
-                      {prof.is_active ? 'ACTIVE BASELINE' : 'INACTIVE'}
-                    </Badge>
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-1.5">
-                      {!prof.is_active && (
-                        <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => handleActivate(prof)}>
-                          Activate
-                        </Button>
-                      )}
-                      <Button size="sm" variant="outline" icon={Edit3} onClick={() => { setEditingProfile(prof); setIsProfileModalOpen(true); }}>
-                        Edit
-                      </Button>
-                      <Button size="sm" variant="ghost" icon={Trash2} onClick={() => handleDelete(prof)} className="text-red-400 hover:text-red-300">
-                        Delete
-                      </Button>
-                    </div>
-                  </td>
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-xs animate-pulse">Loading reference profiles from database...</div>
+        ) : filteredProfiles.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-xs">
+            No reference profiles stored in database. Click "Create Reference Profile" or "Capture Wizard" to create one.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
+                  <th className="p-3">Profile Name</th>
+                  <th className="p-3">Laboratory</th>
+                  <th className="p-3">Created By</th>
+                  <th className="p-3">Created Date</th>
+                  <th className="p-3">Cameras</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      {/* Reference Image Gallery */}
-      <Card title="Reference Snapshot Gallery" subtitle="Baseline snapshot images used for AI object discrepancy comparison">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {galleryImages.map((img) => (
-            <div key={img.id} className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-              <div className="aspect-video bg-black rounded-lg relative flex items-center justify-center border border-slate-800 overflow-hidden">
-                <ImageIcon className="w-8 h-8 text-cyan-400 opacity-80" />
-                <span className="absolute bottom-1.5 left-1.5 bg-slate-950/80 text-white text-[9px] font-mono px-1.5 py-0.5 rounded border border-slate-800">
-                  {img.cameraName}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs pt-1">
-                <div>
-                  <span className="text-slate-200 font-bold block">{img.labName}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{img.date} &bull; {img.assetCount} Assets</span>
-                </div>
-                <Button size="sm" variant="ghost" icon={Download}>
-                  Download
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredProfiles.map((prof) => (
+                  <tr key={prof.id} className="hover:bg-slate-800/40 transition">
+                    <td className="p-3 font-bold text-white font-heading">{prof.name}</td>
+                    <td className="p-3 font-semibold text-cyan-400">{prof.lab_details?.name || 'Lab'}</td>
+                    <td className="p-3 text-slate-300">{prof.created_by || 'Staff'}</td>
+                    <td className="p-3 font-mono text-[11px] text-slate-400">{new Date(prof.created_at || Date.now()).toLocaleDateString()}</td>
+                    <td className="p-3 font-mono text-[11px] text-slate-300">{prof.cameras_count ?? 0} Camera(s)</td>
+                    <td className="p-3">
+                      <Badge variant={prof.is_active ? 'success' : 'slate'} dot>
+                        {prof.is_active ? 'ACTIVE BASELINE' : 'INACTIVE'}
+                      </Badge>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5">
+                        {!prof.is_active && (
+                          <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => handleActivate(prof)}>
+                            Activate
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" icon={Edit3} onClick={() => { setEditingProfile(prof); setIsProfileModalOpen(true); }}>
+                          Edit
+                        </Button>
+                        <Button size="sm" variant="ghost" icon={Trash2} onClick={() => handleDelete(prof)} className="text-red-400 hover:text-red-300">
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Modals */}

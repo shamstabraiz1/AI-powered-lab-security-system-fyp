@@ -22,7 +22,6 @@ import {
   LayoutDashboard,
   FlaskConical,
   Camera,
-  Video,
   Eye,
   Activity,
   AlertTriangle,
@@ -76,18 +75,32 @@ export const DashboardPage = () => {
     refetchInterval: 30000,
   });
 
-  // Stats Extraction with defaults
-  const totalLabs = dashData?.total_labs ?? 3;
-  const totalCameras = (dashData?.online_cameras ?? 2) + (dashData?.offline_cameras ?? 0);
-  const activeCameras = dashData?.online_cameras ?? 2;
-  const activeSessions = 1;
-  const totalIncidents = dashData?.todays_incidents ?? 15;
-  const criticalIncidents = 2;
-  const pendingIncidents = dashData?.active_incidents ?? 3;
-  const resolvedIncidents = 12;
-  const evidenceCount = evidenceData?.results?.length ?? 8;
-  const notifCount = notificationsData?.results?.length ?? 10;
-  const systemHealth = dashData?.system_health ?? '100% Operational';
+  // Query 7: Sessions List
+  const { data: sessionsData } = useQuery({
+    queryKey: ['sessions-list'],
+    queryFn: () => sessionService.getSessions(),
+    refetchInterval: 30000,
+  });
+
+  const incidentsList = incidentsData?.results || (Array.isArray(incidentsData) ? incidentsData : []);
+  const notificationsList = notificationsData?.results || (Array.isArray(notificationsData) ? notificationsData : []);
+  const evidenceList = evidenceData?.results || (Array.isArray(evidenceData) ? evidenceData : []);
+  const labsList = labsData?.results || (Array.isArray(labsData) ? labsData : []);
+  const sessionsList = sessionsData?.results || (Array.isArray(sessionsData) ? sessionsData : []);
+
+  // Real Stats Extraction from Django Backend
+  const totalLabs = dashData?.total_labs ?? labsList.length;
+  const totalCameras = (dashData?.online_cameras ?? 0) + (dashData?.offline_cameras ?? 0);
+  const activeCameras = dashData?.online_cameras ?? 0;
+  const activeSessions = sessionsList.filter((s) => s.status === 'Active').length;
+  const activeSessionName = sessionsList.find((s) => s.status === 'Active')?.lab_details?.name || (activeSessions > 0 ? 'Active Session' : 'None');
+  const totalIncidents = incidentsList.length;
+  const criticalIncidents = incidentsList.filter((i) => i.severity === 'CRITICAL').length;
+  const pendingIncidents = dashData?.active_incidents ?? incidentsList.filter((i) => i.status === 'Open' || i.status === 'Under Investigation').length;
+  const resolvedIncidents = incidentsList.filter((i) => i.status === 'Resolved' || i.status === 'Closed').length;
+  const evidenceCount = evidenceList.length;
+  const notifCount = notificationsList.length;
+  const systemHealth = dashData?.system_health ?? (dashLoading ? 'Loading...' : 'Operational');
 
   return (
     <PageContainer>
@@ -97,9 +110,9 @@ export const DashboardPage = () => {
         icon={LayoutDashboard}
         actions={
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
-              LIVE MONITORING ACTIVE
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${monitoringData?.is_running ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+              <span className={`w-2 h-2 rounded-full ${monitoringData?.is_running ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'} shrink-0`} />
+              {monitoringData?.is_running ? 'LIVE MONITORING ACTIVE' : 'MONITORING STANDBY'}
             </span>
           </div>
         }
@@ -120,7 +133,7 @@ export const DashboardPage = () => {
         <StatCard
           title="Total Cameras"
           value={totalCameras}
-          subtitle="Configured RTSP Streams"
+          subtitle="Configured Streams"
           icon={Camera}
           iconColor="text-cyan-400"
           iconBg="bg-cyan-500/10"
@@ -130,7 +143,7 @@ export const DashboardPage = () => {
         <StatCard
           title="Active Cameras"
           value={activeCameras}
-          subtitle="Streaming at 20.0 FPS"
+          subtitle="Online & Streaming"
           icon={Eye}
           iconColor="text-emerald-400"
           iconBg="bg-emerald-500/10"
@@ -140,16 +153,16 @@ export const DashboardPage = () => {
         <StatCard
           title="Monitoring Sessions"
           value={activeSessions}
-          subtitle="AI Active Session"
+          subtitle="Active Sessions"
           icon={Activity}
           iconColor="text-purple-400"
           iconBg="bg-purple-500/10"
           isLoading={dashLoading}
         />
         <StatCard
-          title="Active Sessions"
-          value="Room 101"
-          subtitle="Deep Learning SE-412"
+          title="Active Session"
+          value={activeSessionName}
+          subtitle={activeSessions > 0 ? "Academic Session Active" : "No Active Session"}
           icon={Zap}
           iconColor="text-amber-400"
           iconBg="bg-amber-500/10"
@@ -158,7 +171,7 @@ export const DashboardPage = () => {
         <StatCard
           title="Total Incidents"
           value={totalIncidents}
-          subtitle="All Time Discrepancies"
+          subtitle="Recorded Discrepancies"
           icon={AlertTriangle}
           iconColor="text-red-400"
           iconBg="bg-red-500/10"
@@ -185,7 +198,7 @@ export const DashboardPage = () => {
         <StatCard
           title="Resolved Incidents"
           value={resolvedIncidents}
-          subtitle="Verified & Solved"
+          subtitle="Verified & Closed"
           icon={CheckCircle}
           iconColor="text-emerald-400"
           iconBg="bg-emerald-500/10"
@@ -194,7 +207,7 @@ export const DashboardPage = () => {
         <StatCard
           title="Evidence Captured"
           value={evidenceCount}
-          subtitle="MP4 Recorded Clips"
+          subtitle="Recorded Clips"
           icon={FileVideo}
           iconColor="text-indigo-400"
           iconBg="bg-indigo-500/10"
@@ -211,8 +224,8 @@ export const DashboardPage = () => {
         />
         <StatCard
           title="System Health"
-          value="100%"
-          subtitle={systemHealth}
+          value={systemHealth}
+          subtitle={systemHealth === 'Healthy' ? '100% Operational' : systemHealth}
           icon={ShieldCheck}
           iconColor="text-emerald-400"
           iconBg="bg-emerald-500/10"
@@ -230,21 +243,20 @@ export const DashboardPage = () => {
       <AnalyticsCharts />
 
       {/* Laboratory Facilities Status Overview */}
-      <LabStatusPanel labs={labsData?.results} />
+      <LabStatusPanel labs={labsList} />
 
       {/* Recent Security Incidents Table */}
-      <RecentIncidentsTable incidents={incidentsData?.results} isLoading={incidentsLoading} />
+      <RecentIncidentsTable incidents={incidentsList} isLoading={incidentsLoading} />
 
       {/* Live Notifications Feed & Recent Evidence Clips */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <LiveNotificationsPanel notifications={notificationsData?.results} isLoading={notificationsLoading} />
-        <RecentEvidencePanel evidenceList={evidenceData?.results} />
+        <LiveNotificationsPanel notifications={notificationsList} isLoading={notificationsLoading} />
+        <RecentEvidencePanel evidenceList={evidenceList} />
       </div>
     </PageContainer>
   );
 };
 
-// Helper Clock Icon for StatCard
 const ClockIcon = (props) => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" {...props}>
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />

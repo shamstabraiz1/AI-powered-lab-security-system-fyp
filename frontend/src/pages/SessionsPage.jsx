@@ -14,11 +14,7 @@ import {
   Play,
   Pause,
   Square,
-  Clock,
-  User,
-  BookOpen,
   CheckCircle,
-  AlertTriangle,
   RefreshCw,
   Search,
   FileText,
@@ -47,22 +43,7 @@ export const SessionsPage = () => {
     queryFn: labService.getLabs,
   });
 
-  const sessionsList = sessionsData?.results || (Array.isArray(sessionsData) ? sessionsData : [
-    {
-      id: 101,
-      session_id: 'SES-9981',
-      instructor_name: 'Dr. Tabraiz Shams',
-      course_name: 'Computer Vision & AI Systems',
-      course_code: 'SE-402',
-      lab_details: { name: 'Software Engineering AI Lab 1' },
-      session_topic: 'Real-time Object Detection & Baseline Verification',
-      planned_duration: 120,
-      status: 'Active',
-      created_at: new Date().toISOString(),
-      cameras_count: 2,
-    },
-  ]);
-
+  const sessionsList = sessionsData?.results || (Array.isArray(sessionsData) ? sessionsData : []);
   const labsList = labsData?.results || (Array.isArray(labsData) ? labsData : []);
 
   const showToast = (msg) => {
@@ -118,10 +99,10 @@ export const SessionsPage = () => {
   const filteredSessions = sessionsList.filter((s) => {
     const term = search.toLowerCase();
     return (
-      s.session_id.toLowerCase().includes(term) ||
-      s.instructor_name.toLowerCase().includes(term) ||
-      s.course_name.toLowerCase().includes(term) ||
-      s.session_topic.toLowerCase().includes(term)
+      (s.session_id && s.session_id.toLowerCase().includes(term)) ||
+      (s.instructor_name && s.instructor_name.toLowerCase().includes(term)) ||
+      (s.course_name && s.course_name.toLowerCase().includes(term)) ||
+      (s.session_topic && s.session_topic.toLowerCase().includes(term))
     );
   });
 
@@ -201,7 +182,7 @@ export const SessionsPage = () => {
               </div>
               <div>
                 <span className="text-slate-400 block text-[10px] uppercase font-bold">Laboratory:</span>
-                <strong className="text-white text-sm font-heading">{activeSession.lab_details?.name || 'SE AI Lab 1'}</strong>
+                <strong className="text-white text-sm font-heading">{activeSession.lab_details?.name || 'Lab'}</strong>
               </div>
             </div>
 
@@ -213,16 +194,16 @@ export const SessionsPage = () => {
                 </Badge>
               </div>
               <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Remaining Duration</span>
-                <strong className="text-cyan-400 font-mono font-bold text-sm">01:45:00</strong>
+                <span className="text-slate-400 block text-[10px]">Planned Duration</span>
+                <strong className="text-cyan-400 font-mono font-bold text-sm">{activeSession.planned_duration} Mins</strong>
               </div>
               <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
                 <span className="text-slate-400 block text-[10px]">Active Cameras</span>
-                <strong className="text-emerald-400 font-mono font-bold text-sm">{activeSession.cameras_count || 2} Online</strong>
+                <strong className="text-emerald-400 font-mono font-bold text-sm">{activeSession.cameras_count || 0} Online</strong>
               </div>
               <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Reference Profile</span>
-                <strong className="text-slate-200 font-bold text-xs">Room 101 Standard</strong>
+                <span className="text-slate-400 block text-[10px]">Start Time</span>
+                <strong className="text-slate-200 font-mono text-xs">{new Date(activeSession.start_time || Date.now()).toLocaleTimeString()}</strong>
               </div>
             </div>
           </div>
@@ -252,43 +233,51 @@ export const SessionsPage = () => {
 
       {/* Sessions History Table */}
       <Card title="Academic Lab Sessions History" subtitle="Archive of completed and previous academic sessions">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
-                <th className="p-3">Session ID</th>
-                <th className="p-3">Instructor & Course</th>
-                <th className="p-3">Laboratory</th>
-                <th className="p-3">Duration</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {filteredSessions.map((ses) => (
-                <tr key={ses.id} className="hover:bg-slate-800/40 transition">
-                  <td className="p-3 font-mono font-bold text-white">#{ses.session_id}</td>
-                  <td className="p-3">
-                    <span className="font-bold text-white block">{ses.instructor_name}</span>
-                    <span className="text-[10px] text-cyan-400">{ses.course_name} ({ses.course_code || 'SE-402'})</span>
-                  </td>
-                  <td className="p-3 font-semibold text-slate-300">{ses.lab_details?.name || 'SE AI Lab 1'}</td>
-                  <td className="p-3 font-mono text-[11px] text-slate-400">{ses.planned_duration} Mins</td>
-                  <td className="p-3">
-                    <Badge variant={ses.status === 'Active' ? 'success' : ses.status === 'Paused' ? 'warning' : 'slate'} dot>
-                      {ses.status.toUpperCase()}
-                    </Badge>
-                  </td>
-                  <td className="p-3">
-                    <Button size="sm" variant="outline" icon={FileText} onClick={() => setSelectedSummary(ses)}>
-                      View Summary
-                    </Button>
-                  </td>
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-xs animate-pulse">Loading sessions from database...</div>
+        ) : filteredSessions.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-xs">
+            No lab sessions stored in database. Click "Start New Lab Session" to record a session.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
+                  <th className="p-3">Session ID</th>
+                  <th className="p-3">Instructor & Course</th>
+                  <th className="p-3">Laboratory</th>
+                  <th className="p-3">Duration</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredSessions.map((ses) => (
+                  <tr key={ses.id} className="hover:bg-slate-800/40 transition">
+                    <td className="p-3 font-mono font-bold text-white">#{ses.session_id}</td>
+                    <td className="p-3">
+                      <span className="font-bold text-white block">{ses.instructor_name}</span>
+                      <span className="text-[10px] text-cyan-400">{ses.course_name} ({ses.course_code || 'SE-402'})</span>
+                    </td>
+                    <td className="p-3 font-semibold text-slate-300">{ses.lab_details?.name || 'Lab'}</td>
+                    <td className="p-3 font-mono text-[11px] text-slate-400">{ses.planned_duration} Mins</td>
+                    <td className="p-3">
+                      <Badge variant={ses.status === 'Active' ? 'success' : ses.status === 'Paused' ? 'warning' : 'slate'} dot>
+                        {ses.status.toUpperCase()}
+                      </Badge>
+                    </td>
+                    <td className="p-3">
+                      <Button size="sm" variant="outline" icon={FileText} onClick={() => setSelectedSummary(ses)}>
+                        View Summary
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Session Modal */}
@@ -320,15 +309,8 @@ export const SessionsPage = () => {
                 <div className="grid grid-cols-2 gap-2 text-slate-300">
                   <div>Instructor: <strong className="text-white">{selectedSummary.instructor_name}</strong></div>
                   <div>Course: <strong className="text-cyan-400">{selectedSummary.course_name}</strong></div>
-                  <div>Laboratory: <strong className="text-white">{selectedSummary.lab_details?.name || 'SE AI Lab 1'}</strong></div>
+                  <div>Laboratory: <strong className="text-white">{selectedSummary.lab_details?.name || 'Lab'}</strong></div>
                   <div>Duration: <strong className="text-emerald-400 font-mono">{selectedSummary.planned_duration} Mins</strong></div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-800 space-y-1 text-slate-400">
-                  <span className="font-bold text-white block font-heading">AI Performance & Asset Final Audit</span>
-                  <div>Frames Processed: <strong className="text-white font-mono">45,120</strong></div>
-                  <div>Detection Accuracy: <strong className="text-emerald-400 font-mono">98.4%</strong></div>
-                  <div>Protected Assets: <strong className="text-cyan-400 font-mono">60 Units</strong></div>
                 </div>
               </div>
 

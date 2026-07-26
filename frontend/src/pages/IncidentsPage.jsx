@@ -10,13 +10,8 @@ import { incidentService } from '../services/incidentService';
 import {
   AlertTriangle,
   Search,
-  Filter,
-  Eye,
   CheckCircle,
-  Clock,
-  Shield,
   FileVideo,
-  UserCheck,
   RefreshCw,
   Edit3,
   X,
@@ -41,38 +36,7 @@ export const IncidentsPage = () => {
     refetchInterval: 5000,
   });
 
-  const incidentsList = incidentsData?.results || (Array.isArray(incidentsData) ? incidentsData : [
-    {
-      id: 881,
-      title: 'Mouse Missing Discrepancy',
-      camera_name: 'Cam 1: Overhead Main',
-      lab_name: 'Software Engineering AI Lab 1',
-      asset_name: 'Mouse',
-      expected_quantity: 20,
-      detected_quantity: 19,
-      missing_quantity: 1,
-      severity: 'CRITICAL',
-      status: 'Open',
-      confidence: 0.94,
-      assigned_officer: 'Security Officer Khan',
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 882,
-      title: 'Keyboard Missing Discrepancy',
-      camera_name: 'Cam 2: Desk Array',
-      lab_name: 'Software Engineering AI Lab 1',
-      asset_name: 'Keyboard',
-      expected_quantity: 20,
-      detected_quantity: 19,
-      missing_quantity: 1,
-      severity: 'WARNING',
-      status: 'Under Investigation',
-      confidence: 0.92,
-      assigned_officer: 'Security Officer Khan',
-      created_at: new Date(Date.now() - 3600000).toISOString(),
-    },
-  ]);
+  const incidentsList = incidentsData?.results || (Array.isArray(incidentsData) ? incidentsData : []);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -82,9 +46,9 @@ export const IncidentsPage = () => {
   // Status Update Mutation
   const updateStatusMutation = useMutation({
     mutationFn: ({ id, status }) => incidentService.updateIncidentStatus(id, { status }),
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['incidents-list'] });
-      showToast(`Incident #${selectedIncident.id} status updated to ${newStatus}.`);
+      showToast(`Incident status updated to ${newStatus}.`);
       setSelectedIncident(null);
       setStatusComment('');
     },
@@ -105,7 +69,7 @@ export const IncidentsPage = () => {
 
   const totalIncidents = incidentsList.length;
   const criticalIncidents = incidentsList.filter((i) => i.severity === 'CRITICAL').length;
-  const resolvedIncidents = incidentsList.filter((i) => i.status === 'Resolved').length;
+  const resolvedIncidents = incidentsList.filter((i) => i.status === 'Resolved' || i.status === 'Closed').length;
   const pendingIncidents = incidentsList.filter((i) => i.status === 'Open' || i.status === 'Under Investigation').length;
 
   return (
@@ -197,62 +161,70 @@ export const IncidentsPage = () => {
 
       {/* Incidents Data Table */}
       <Card title="Recorded Security Incidents" subtitle="AI detection logs with missing asset counts and audit trail">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
-                <th className="p-3">Incident ID</th>
-                <th className="p-3">Laboratory & Camera</th>
-                <th className="p-3">Missing Asset</th>
-                <th className="p-3">Exp / Det</th>
-                <th className="p-3">Confidence</th>
-                <th className="p-3">Severity</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Assigned Officer</th>
-                <th className="p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {filteredIncidents.map((inc) => (
-                <tr key={inc.id} className="hover:bg-slate-800/40 transition">
-                  <td className="p-3 font-mono font-bold text-white">#INC-{inc.id}</td>
-                  <td className="p-3">
-                    <span className="font-bold text-white block">{inc.lab_name || 'SE AI Lab 1'}</span>
-                    <span className="text-[10px] text-cyan-400 font-mono">{inc.camera_name || 'Cam 1'}</span>
-                  </td>
-                  <td className="p-3 font-bold text-red-400">
-                    {inc.asset_name || 'Mouse'} <span className="text-xs font-normal">(-{inc.missing_quantity || 1})</span>
-                  </td>
-                  <td className="p-3 font-mono text-[11px] text-slate-300">
-                    {inc.expected_quantity || 20} / <strong className="text-amber-400">{inc.detected_quantity || 19}</strong>
-                  </td>
-                  <td className="p-3 font-mono text-cyan-400">{((inc.confidence || 0.94) * 100).toFixed(0)}%</td>
-                  <td className="p-3">
-                    <Badge variant={inc.severity === 'CRITICAL' ? 'danger' : 'warning'} dot>
-                      {inc.severity || 'CRITICAL'}
-                    </Badge>
-                  </td>
-                  <td className="p-3">
-                    <Badge variant={inc.status === 'Resolved' ? 'success' : inc.status === 'Under Investigation' ? 'warning' : 'danger'}>
-                      {inc.status || 'Open'}
-                    </Badge>
-                  </td>
-                  <td className="p-3 text-slate-300">{inc.assigned_officer || 'Security Officer Khan'}</td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-1.5">
-                      <Button size="sm" variant="outline" icon={FileVideo} onClick={() => setSelectedEvidence(inc)}>
-                        Evidence
-                      </Button>
-                      <Button size="sm" variant="ghost" icon={Edit3} onClick={() => setSelectedIncident(inc)}>
-                        Workflow
-                      </Button>
-                    </div>
-                  </td>
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-xs animate-pulse">Loading incidents from database...</div>
+        ) : filteredIncidents.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-xs">
+            No incidents recorded in database. The system will log incidents automatically when discrepancies are detected.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
+                  <th className="p-3">Incident ID</th>
+                  <th className="p-3">Laboratory & Camera</th>
+                  <th className="p-3">Missing Asset</th>
+                  <th className="p-3">Exp / Det</th>
+                  <th className="p-3">Confidence</th>
+                  <th className="p-3">Severity</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Assigned Officer</th>
+                  <th className="p-3">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {filteredIncidents.map((inc) => (
+                  <tr key={inc.id} className="hover:bg-slate-800/40 transition">
+                    <td className="p-3 font-mono font-bold text-white">#INC-{inc.id}</td>
+                    <td className="p-3">
+                      <span className="font-bold text-white block">{inc.lab_name || 'Lab'}</span>
+                      <span className="text-[10px] text-cyan-400 font-mono">{inc.camera_name || 'Camera'}</span>
+                    </td>
+                    <td className="p-3 font-bold text-red-400">
+                      {inc.asset_name || 'Asset'} <span className="text-xs font-normal">(-{inc.missing_quantity || 1})</span>
+                    </td>
+                    <td className="p-3 font-mono text-[11px] text-slate-300">
+                      {inc.expected_quantity || 0} / <strong className="text-amber-400">{inc.detected_quantity || 0}</strong>
+                    </td>
+                    <td className="p-3 font-mono text-cyan-400">{((inc.confidence || 0.94) * 100).toFixed(0)}%</td>
+                    <td className="p-3">
+                      <Badge variant={inc.severity === 'CRITICAL' ? 'danger' : 'warning'} dot>
+                        {inc.severity || 'CRITICAL'}
+                      </Badge>
+                    </td>
+                    <td className="p-3">
+                      <Badge variant={inc.status === 'Resolved' ? 'success' : inc.status === 'Under Investigation' ? 'warning' : 'danger'}>
+                        {inc.status || 'Open'}
+                      </Badge>
+                    </td>
+                    <td className="p-3 text-slate-300">{inc.assigned_officer || 'Security Staff'}</td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-1.5">
+                        <Button size="sm" variant="outline" icon={FileVideo} onClick={() => setSelectedEvidence(inc)}>
+                          Evidence
+                        </Button>
+                        <Button size="sm" variant="ghost" icon={Edit3} onClick={() => setSelectedIncident(inc)}>
+                          Workflow
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {/* Incident Status Workflow Modal */}

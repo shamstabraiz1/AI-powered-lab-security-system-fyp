@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageContainer } from '../components/layout/PageContainer';
 import { PageHeader } from '../components/layout/PageHeader';
@@ -7,7 +7,6 @@ import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { EvidenceModal } from '../components/modals/EvidenceModal';
 import { cameraService } from '../services/cameraService';
-import { labService } from '../services/labService';
 import { sessionService } from '../services/sessionService';
 import { incidentService } from '../services/incidentService';
 import { notificationService } from '../services/notificationService';
@@ -24,138 +23,51 @@ import {
   Grid2x2,
   Grid3x3,
   CheckCircle,
-  Clock,
   User,
   BookOpen,
-  Wifi,
+  Camera as CameraIcon,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 
-// Camera Canvas Stream Component with Real-Time YOLO Overlay & Verification Cycles
-const CameraStreamCanvas = ({ camera, isMonitoring, onTriggerIncident }) => {
-  const canvasRef = useRef(null);
-  const [verificationFrame, setVerificationFrame] = useState(1);
-  const [discrepancyDetected, setDiscrepancyDetected] = useState(false);
-
-  useEffect(() => {
-    let animFrame;
-    let phase = 0;
-    let cycleTimer;
-
-    if (isMonitoring) {
-      cycleTimer = setInterval(() => {
-        setVerificationFrame((prev) => {
-          if (prev >= 3) {
-            setDiscrepancyDetected(true);
-            return 3;
-          }
-          return prev + 1;
-        });
-      }, 1500);
-    } else {
-      setDiscrepancyDetected(false);
-      setVerificationFrame(1);
-    }
-
-    const draw = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-
-      ctx.fillStyle = '#090d16';
-      ctx.fillRect(0, 0, w, h);
-
-      // Cyber Grid
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.05)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < w; i += 30) {
-        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke();
-      }
-      for (let j = 0; j < h; j += 30) {
-        ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(w, j); ctx.stroke();
-      }
-
-      // YOLO Bounding Boxes
-      const boxes = [
-        { label: 'Monitor', conf: 0.96, x: 40, y: 40, w: 100, h: 70, color: '#10b981' },
-        { label: 'Keyboard', conf: 0.94, x: 40, y: 130, w: 90, h: 30, color: '#38bdf8' },
-        { label: discrepancyDetected ? 'MISSING MOUSE' : 'Mouse', conf: 0.92, x: 145, y: 130, w: 35, h: 30, color: discrepancyDetected ? '#ef4444' : '#10b981' },
-      ];
-
-      boxes.forEach((box) => {
-        const jitter = isMonitoring ? Math.sin(phase) * 1.0 : 0;
-        const bx = box.x + jitter;
-        const by = box.y;
-
-        ctx.strokeStyle = box.color;
-        ctx.lineWidth = discrepancyDetected && box.label.includes('MISSING') ? 3 : 2;
-        ctx.strokeRect(bx, by, box.w, box.h);
-
-        ctx.fillStyle = box.color;
-        ctx.fillRect(bx, by - 16, box.w, 16);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '10px Inter, sans-serif';
-        ctx.fillText(`${box.label} ${(box.conf * 100).toFixed(0)}%`, bx + 4, by - 4);
-      });
-
-      phase += 0.04;
-      animFrame = requestAnimationFrame(draw);
-    };
-
-    draw();
-    return () => {
-      cancelAnimationFrame(animFrame);
-      if (cycleTimer) clearInterval(cycleTimer);
-    };
-  }, [isMonitoring, discrepancyDetected]);
+// Stream component displaying actual camera URL saved in database
+const RealCameraStreamCard = ({ camera, isMonitoring }) => {
+  const [streamError, setStreamError] = useState(false);
+  const streamUrl = camera.rtsp_url || camera.ip_address;
 
   return (
     <div className="aspect-video bg-black rounded-xl overflow-hidden relative border border-slate-800 shadow-xl group">
-      <canvas ref={canvasRef} width={480} height={270} className="w-full h-full object-cover" />
+      {/* Real Stream Image Element for HTTP/MJPEG streams or fallback placeholder */}
+      {streamUrl && (streamUrl.startsWith('http://') || streamUrl.startsWith('https://')) && !streamError ? (
+        <img
+          src={streamUrl}
+          alt={camera.name}
+          onError={() => setStreamError(true)}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 p-4 text-center space-y-2">
+          <CameraIcon className="w-8 h-8 text-cyan-400 opacity-70" />
+          <span className="text-xs text-slate-300 font-bold">{camera.name}</span>
+          <span className="text-[10px] text-slate-500 font-mono truncate max-w-xs">{streamUrl}</span>
+          {streamError ? (
+            <span className="text-[10px] text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded">
+              Stream Connection Unavailable
+            </span>
+          ) : (
+            <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded">
+              {isMonitoring ? 'Live Monitoring Ready' : 'Stream Standby'}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Camera Header Overlay */}
       <div className="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none">
         <div className="bg-slate-950/85 backdrop-blur px-2 py-1 rounded-lg border border-slate-800 text-[10px] text-white font-bold font-heading">
-          {camera.name} &bull; <span className="text-slate-400 font-normal">{camera.location}</span>
+          {camera.name} &bull; <span className="text-slate-400 font-normal">{camera.location || 'Location Not Specified'}</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded text-[9px] font-bold">
-            20 FPS
-          </span>
-          <span className="bg-blue-500/20 text-blue-400 border border-blue-500/30 px-1.5 py-0.5 rounded text-[9px] font-bold">
-            YOLOv8 Active
-          </span>
-        </div>
-      </div>
-
-      {/* Discrepancy & Verification Overlay */}
-      <div className="absolute bottom-2 left-2 right-2 flex justify-between items-end pointer-events-none">
-        <div className="bg-slate-950/90 backdrop-blur p-2 rounded-lg border border-slate-800 space-y-1 text-[10px]">
-          <div className="flex items-center gap-1.5 text-slate-300">
-            <span className="text-slate-400">Verification Window:</span>
-            <span className="font-bold text-cyan-400">
-              Frame 1 {verificationFrame >= 1 && '✓'} &bull; Frame 2 {verificationFrame >= 2 && '✓'} &bull; Frame 3 {verificationFrame >= 3 && '✓'}
-            </span>
-          </div>
-          {discrepancyDetected && (
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="p-1.5 rounded bg-red-500/20 border border-red-500/40 text-red-400 font-bold flex items-center justify-between gap-2"
-            >
-              <span>⚠️ Missing Mouse (Exp: 20 | Det: 19 | Missing: 1)</span>
-              <button
-                onClick={() => onTriggerIncident(camera)}
-                className="pointer-events-auto text-[9px] bg-red-600 hover:bg-red-500 text-white px-2 py-0.5 rounded transition cursor-pointer"
-              >
-                View Evidence
-              </button>
-            </motion.div>
-          )}
-        </div>
+        <Badge variant={camera.status === 'Online' ? 'success' : 'slate'} dot>
+          {camera.status || 'Offline'}
+        </Badge>
       </div>
     </div>
   );
@@ -170,49 +82,31 @@ export const LiveMonitoringPage = () => {
   const { data: monitoringData } = useQuery({
     queryKey: ['monitoring-status'],
     queryFn: sessionService.getMonitoringStatus,
-    refetchInterval: 3000,
+    refetchInterval: 5000,
   });
 
-  const { data: camerasData } = useQuery({
+  const { data: camerasData, isLoading: camerasLoading } = useQuery({
     queryKey: ['cameras-list'],
-    queryFn: cameraService.getCameras,
+    queryFn: () => cameraService.getCameras(),
+  });
+
+  const { data: sessionsData } = useQuery({
+    queryKey: ['sessions-list'],
+    queryFn: () => sessionService.getSessions(),
   });
 
   const { data: incidentsData } = useQuery({
     queryKey: ['incidents-list'],
     queryFn: () => incidentService.getIncidents(),
-    refetchInterval: 3000,
+    refetchInterval: 5000,
   });
 
-  const { data: notificationsData } = useQuery({
-    queryKey: ['notifications-list'],
-    queryFn: () => notificationService.getNotifications(),
-    refetchInterval: 3000,
-  });
+  const camerasList = camerasData?.results || (Array.isArray(camerasData) ? camerasData : []);
+  const sessionsList = sessionsData?.results || (Array.isArray(sessionsData) ? sessionsData : []);
+  const incidentsList = incidentsData?.results || (Array.isArray(incidentsData) ? incidentsData : []);
 
-  const camerasList = camerasData?.results || [
-    { id: 1, name: 'Cam 1: Overhead Main', location: 'SE AI Lab 1 (Overhead View)', status: 'Online' },
-    { id: 2, name: 'Cam 2: Desk Array', location: 'SE AI Lab 1 (Workstation Array)', status: 'Online' },
-  ];
-
-  const incidentsList = incidentsData?.results || [
-    {
-      id: 881,
-      title: 'Mouse Missing Discrepancy',
-      camera_name: 'Cam 1: Overhead Main',
-      lab_name: 'Software Engineering AI Lab 1',
-      asset_name: 'Mouse',
-      expected_quantity: 20,
-      detected_quantity: 19,
-      missing_quantity: 1,
-      severity: 'CRITICAL',
-      status: 'NEW',
-      confidence: 0.94,
-      created_at: new Date().toISOString(),
-    },
-  ];
-
-  const isMonitoring = monitoringData?.is_running ?? true;
+  const activeSession = sessionsList.find((s) => s.status === 'Active' || s.status === 'Paused');
+  const isMonitoring = monitoringData?.is_running ?? false;
 
   // Mutations
   const startMutation = useMutation({
@@ -225,29 +119,11 @@ export const LiveMonitoringPage = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['monitoring-status'] }),
   });
 
-  const restartMutation = useMutation({
-    mutationFn: sessionService.restartScheduler,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['monitoring-status'] }),
-  });
-
-  const handleOpenEvidence = (inc) => {
-    setSelectedEvidence({
-      id: inc.id,
-      camera_name: inc.camera_name || 'Cam 1: Overhead Main',
-      created_at: inc.created_at || new Date().toISOString(),
-      asset_name: inc.asset_name || 'Mouse',
-      confidence: inc.confidence || 0.94,
-      missing_quantity: inc.missing_quantity || 1,
-      expected_quantity: inc.expected_quantity || 20,
-      detected_quantity: inc.detected_quantity || 19,
-    });
-  };
-
   return (
     <PageContainer>
       <PageHeader
-        title="SOC Security Operations Center & Live AI Monitoring"
-        subtitle="Real-time multi-camera YOLOv8 computer vision asset monitoring, discrepancy verification, and automated evidence recording"
+        title="Security Operations Center (SOC) Live Monitoring"
+        subtitle="Real-time lab camera stream monitoring and AI discrepancy telemetry"
         icon={Eye}
         actions={
           <div className="flex items-center gap-2">
@@ -286,7 +162,7 @@ export const LiveMonitoringPage = () => {
           </div>
           <div>
             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest block font-heading">Active Facility</span>
-            <strong className="text-white font-heading text-sm">Software Engineering AI Lab 1</strong>
+            <strong className="text-white font-heading text-sm">{activeSession?.lab_details?.name || 'No Active Facility'}</strong>
           </div>
         </div>
 
@@ -296,7 +172,7 @@ export const LiveMonitoringPage = () => {
           </div>
           <div>
             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest block font-heading">Lab Instructor</span>
-            <strong className="text-white font-heading text-sm">Dr. Tabraiz Shams</strong>
+            <strong className="text-white font-heading text-sm">{activeSession?.instructor_name || 'Not Specified'}</strong>
           </div>
         </div>
 
@@ -306,106 +182,82 @@ export const LiveMonitoringPage = () => {
           </div>
           <div>
             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest block font-heading">Course Topic</span>
-            <strong className="text-white font-heading text-sm">SE-402: Computer Vision AI</strong>
+            <strong className="text-white font-heading text-sm">{activeSession?.session_topic || 'No Active Topic'}</strong>
           </div>
         </div>
 
         <div className="flex items-center gap-3 justify-end">
           <div className="text-right">
             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-widest block font-heading">Engine Status</span>
-            <Badge variant={isMonitoring ? 'success' : 'danger'} dot>
-              {isMonitoring ? 'SCHEDULER RUNNING' : 'STOPPED'}
+            <Badge variant={isMonitoring ? 'success' : 'slate'} dot>
+              {isMonitoring ? 'SCHEDULER RUNNING' : 'STANDBY'}
             </Badge>
           </div>
         </div>
       </div>
 
-      {/* SOC KPI Metrics Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 text-xs">
-        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">Monitoring FPS</span>
-          <strong className="text-cyan-400 font-mono text-base font-bold">20.0 FPS</strong>
+      {/* Multi-Camera Stream Grid */}
+      {camerasLoading ? (
+        <div className="p-8 text-center text-slate-400 text-xs animate-pulse">Loading camera stream instances from database...</div>
+      ) : camerasList.length === 0 ? (
+        <div className="glass-panel p-8 rounded-xl text-center text-slate-400 text-xs">
+          No cameras configured in database. Add IP cameras in the IP Cameras module to view live streams.
         </div>
-        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">Detection Accuracy</span>
-          <strong className="text-emerald-400 font-mono text-base font-bold">98.4%</strong>
+      ) : (
+        <div className={`grid grid-cols-1 ${gridMode === '2x2' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
+          {camerasList.map((cam) => (
+            <RealCameraStreamCard key={cam.id} camera={cam} isMonitoring={isMonitoring} />
+          ))}
         </div>
-        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">Total Frames Processed</span>
-          <strong className="text-white font-mono text-base font-bold">45,120</strong>
-        </div>
-        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">Protected Assets</span>
-          <strong className="text-blue-400 font-mono text-base font-bold">60 Units</strong>
-        </div>
-        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">Active Incidents</span>
-          <strong className="text-red-400 font-mono text-base font-bold">{incidentsList.length}</strong>
-        </div>
-        <div className="p-3 bg-slate-900 rounded-xl border border-slate-800">
-          <span className="text-slate-400 block text-[10px]">YOLOv8 Engine</span>
-          <strong className="text-emerald-400 font-mono text-xs font-bold">yolov8m.pt</strong>
-        </div>
-      </div>
+      )}
 
-      {/* Multi-Camera Stream Canvas Grid */}
-      <div className={`grid grid-cols-1 ${gridMode === '2x2' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4`}>
-        {camerasList.map((cam) => (
-          <CameraStreamCanvas
-            key={cam.id}
-            camera={cam}
-            isMonitoring={isMonitoring}
-            onTriggerIncident={handleOpenEvidence}
-          />
-        ))}
-      </div>
-
-      {/* Incidents & Evidence Recording Panel */}
-      <Card title="Security Operations Incidents Log" subtitle="Verified asset discrepancy alerts and automated evidence captures">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
-                <th className="p-3">Incident ID</th>
-                <th className="p-3">Camera</th>
-                <th className="p-3">Missing Asset</th>
-                <th className="p-3">Severity</th>
-                <th className="p-3">Time</th>
-                <th className="p-3">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {incidentsList.map((inc) => (
-                <tr key={inc.id} className="hover:bg-slate-800/40 transition">
-                  <td className="p-3 font-mono font-bold text-white">#INC-{inc.id}</td>
-                  <td className="p-3 font-bold text-cyan-400">{inc.camera_name || 'Cam 1: Overhead Main'}</td>
-                  <td className="p-3 text-red-400 font-bold">
-                    {inc.asset_name || 'Mouse'} (Missing: {inc.missing_quantity || 1})
-                  </td>
-                  <td className="p-3">
-                    <Badge variant={inc.severity === 'CRITICAL' ? 'danger' : 'warning'} dot>
-                      {inc.severity || 'CRITICAL'}
-                    </Badge>
-                  </td>
-                  <td className="p-3 font-mono text-slate-400">{new Date(inc.created_at || Date.now()).toLocaleTimeString()}</td>
-                  <td className="p-3">
-                    <Button size="sm" variant="outline" icon={FileVideo} onClick={() => handleOpenEvidence(inc)}>
-                      View Evidence
-                    </Button>
-                  </td>
+      {/* Incidents Log Table */}
+      <Card title="Security Operations Incidents Log" subtitle="Recorded asset discrepancies and evidence captures from backend">
+        {incidentsList.length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-xs">
+            No incidents recorded. The system will log incidents when discrepancies occur.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
+                  <th className="p-3">Incident ID</th>
+                  <th className="p-3">Camera</th>
+                  <th className="p-3">Missing Asset</th>
+                  <th className="p-3">Severity</th>
+                  <th className="p-3">Time</th>
+                  <th className="p-3">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {incidentsList.map((inc) => (
+                  <tr key={inc.id} className="hover:bg-slate-800/40 transition">
+                    <td className="p-3 font-mono font-bold text-white">#INC-{inc.id}</td>
+                    <td className="p-3 font-bold text-cyan-400">{inc.camera_name || 'Camera'}</td>
+                    <td className="p-3 text-red-400 font-bold">
+                      {inc.asset_name || 'Asset'} (Missing: {inc.missing_quantity || 1})
+                    </td>
+                    <td className="p-3">
+                      <Badge variant={inc.severity === 'CRITICAL' ? 'danger' : 'warning'} dot>
+                        {inc.severity || 'CRITICAL'}
+                      </Badge>
+                    </td>
+                    <td className="p-3 font-mono text-slate-400">{new Date(inc.created_at || Date.now()).toLocaleTimeString()}</td>
+                    <td className="p-3">
+                      <Button size="sm" variant="outline" icon={FileVideo} onClick={() => setSelectedEvidence(inc)}>
+                        View Evidence
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
-      {/* Evidence Inspector Modal */}
-      <EvidenceModal
-        isOpen={!!selectedEvidence}
-        onClose={() => setSelectedEvidence(null)}
-        incident={selectedEvidence}
-      />
+      <EvidenceModal isOpen={!!selectedEvidence} onClose={() => setSelectedEvidence(null)} incident={selectedEvidence} />
     </PageContainer>
   );
 };
