@@ -6,9 +6,10 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
 import { ReferenceProfileModal } from '../components/modals/ReferenceProfileModal';
-import { CaptureReferenceModal } from '../components/modals/CaptureReferenceModal';
+import { ReferenceCaptureWizardModal } from '../components/modals/ReferenceCaptureWizardModal';
 import { referenceService } from '../services/referenceService';
 import { cameraService } from '../services/cameraService';
+import { labService } from '../services/labService';
 
 import {
   Camera,
@@ -17,28 +18,27 @@ import {
   Trash2,
   CheckCircle,
   Image as ImageIcon,
-  Sliders,
   Download,
   Eye,
   RefreshCw,
   Layers,
-  Save,
+  Wand2,
+  ShieldCheck,
+  Search,
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export const ReferenceProfilesPage = () => {
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState('');
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState(null);
-  const [savingSettings, setSavingSettings] = useState(false);
+  const [selectedProfileDetail, setSelectedProfileDetail] = useState(null);
+  const [toastMessage, setToastMessage] = useState('');
 
-  // Form State for Detection Configuration
-  const [confidence, setConfidence] = useState('0.25');
-  const [interval, setInterval] = useState('1.0');
-  const [threshold, setThreshold] = useState('1');
-  const [verificationFrames, setVerificationFrames] = useState('3');
-
-  const { data: profilesData } = useQuery({
+  // 1. Queries
+  const { data: profilesData, isLoading } = useQuery({
     queryKey: ['reference-profiles'],
     queryFn: () => referenceService.getReferenceProfiles(),
   });
@@ -48,20 +48,66 @@ export const ReferenceProfilesPage = () => {
     queryFn: cameraService.getCameras,
   });
 
-  const profiles = profilesData?.results || [
-    {
-      id: 1,
-      name: 'Room 101 Standard Baseline',
-      camera_details: { name: 'Cam 1: Overhead Main', location: 'SE AI Lab 1' },
-      is_active: true,
-      created_at: new Date().toISOString(),
-      assets: [
-        { asset_details: { name: 'Monitor', category: 'computer' }, detected_quantity: 20, confidence: 0.96 },
-        { asset_details: { name: 'Keyboard', category: 'computer' }, detected_quantity: 20, confidence: 0.94 },
-        { asset_details: { name: 'Mouse', category: 'computer' }, detected_quantity: 20, confidence: 0.92 },
-      ],
+  const { data: labsData } = useQuery({
+    queryKey: ['labs-list'],
+    queryFn: labService.getLabs,
+  });
+
+  const profilesList = profilesData?.results || (Array.isArray(profilesData) ? profilesData : []);
+  const camerasList = camerasData?.results || (Array.isArray(camerasData) ? camerasData : []);
+  const labsList = labsData?.results || (Array.isArray(labsData) ? labsData : []);
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 4000);
+  };
+
+  // 2. Mutations
+  const activateMutation = useMutation({
+    mutationFn: (id) => referenceService.activateProfile(id),
+    onSuccess: (data) => {
+      console.log('[REFERENCE PAGE] Activate Success:', data);
+      queryClient.invalidateQueries({ queryKey: ['reference-profiles'] });
+      showToast(data.message || 'Reference Profile activated successfully!');
     },
-  ];
+    onError: (err) => {
+      console.error('[REFERENCE PAGE] Activate Error:', err);
+      alert('Failed to activate profile.');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => referenceService.deleteReferenceProfile(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reference-profiles'] });
+      showToast('Reference Profile deleted.');
+    },
+    onError: (err) => {
+      console.error('[REFERENCE PAGE] Delete Error:', err);
+      alert('Failed to delete reference profile.');
+    },
+  });
+
+  const handleActivate = (prof) => {
+    if (confirm(`Are you sure you want to activate "${prof.name}"? This will deactivate any existing active profile for ${prof.lab_details?.name || 'this laboratory'}.`)) {
+      activateMutation.mutate(prof.id);
+    }
+  };
+
+  const handleDelete = (prof) => {
+    if (confirm(`Are you sure you want to delete reference profile "${prof.name}"?`)) {
+      deleteMutation.mutate(prof.id);
+    }
+  };
+
+  const filteredProfiles = profilesList.filter((p) => {
+    const term = search.toLowerCase();
+    return (
+      p.name.toLowerCase().includes(term) ||
+      (p.lab_details?.name && p.lab_details.name.toLowerCase().includes(term)) ||
+      (p.created_by && p.created_by.toLowerCase().includes(term))
+    );
+  });
 
   const galleryImages = [
     {
@@ -80,30 +126,16 @@ export const ReferenceProfilesPage = () => {
     },
   ];
 
-  const handleSaveDetectionSettings = async (e) => {
-    e.preventDefault();
-    setSavingSettings(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    setSavingSettings(false);
-    alert('Asset Detection Configuration updated and saved.');
-  };
-
-  const handleSubmitProfile = (values) => {
-    console.log('Submitted Profile values:', values);
-    setIsProfileModalOpen(false);
-    queryClient.invalidateQueries(['reference-profiles']);
-  };
-
   return (
     <PageContainer>
       <PageHeader
-        title="Reference Profile & Asset Baseline Management"
-        subtitle="Manage camera baseline profiles, reference asset quantities, baseline gallery, and YOLO detection parameters"
+        title="Reference Profile & Baseline Asset Management"
+        subtitle="Manage baseline reference profiles, capture wizard snapshots, asset counts, and active security configurations"
         icon={Camera}
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" icon={Camera} onClick={() => setIsCaptureModalOpen(true)}>
-              Capture Reference Image
+            <Button variant="outline" icon={Wand2} onClick={() => setIsWizardOpen(true)}>
+              Capture Wizard
             </Button>
             <Button icon={Plus} onClick={() => { setEditingProfile(null); setIsProfileModalOpen(true); }}>
               Create Reference Profile
@@ -112,47 +144,88 @@ export const ReferenceProfilesPage = () => {
         }
       />
 
-      {/* Reference Profiles List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {profiles.map((prof) => (
-          <Card
-            key={prof.id}
-            title={prof.name || 'Standard Baseline Profile'}
-            subtitle={`${prof.camera_details?.name || 'Cam 1'} • ${prof.camera_details?.location || 'Room 101'}`}
-            action={
-              <Button size="sm" variant="outline" icon={Edit3} onClick={() => { setEditingProfile(prof); setIsProfileModalOpen(true); }}>
-                Edit Baseline
-              </Button>
-            }
+      {/* Success Toast */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="p-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg"
           >
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between items-center bg-slate-950 p-2.5 rounded-lg border border-slate-800">
-                <span className="text-slate-400">Created: <strong className="text-white font-mono">{new Date(prof.created_at).toLocaleDateString()}</strong></span>
-                <Badge variant={prof.is_active ? 'success' : 'slate'} dot>
-                  {prof.is_active ? 'ACTIVE BASELINE' : 'INACTIVE'}
-                </Badge>
-              </div>
+            <CheckCircle className="w-4 h-4 shrink-0" />
+            <span>{toastMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 space-y-2">
-                <span className="font-bold text-slate-300 font-heading block">Expected Asset Baseline Breakdown</span>
-                <div className="space-y-1 text-[11px]">
-                  {prof.assets?.map((ast, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-slate-400">
-                      <span>{ast.asset_details?.name || 'Asset'}</span>
-                      <span className="font-bold text-cyan-400 font-mono">
-                        {ast.detected_quantity} Units ({(ast.confidence * 100).toFixed(0)}%)
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </Card>
-        ))}
+      {/* Search Bar */}
+      <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4">
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Search profile name, laboratory, or creator..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-blue-500 transition"
+          />
+        </div>
+        <span className="text-xs text-slate-400 font-semibold">{filteredProfiles.length} Profile(s) Configured</span>
       </div>
 
+      {/* Reference Profiles Data Table */}
+      <Card title="Reference Baseline Profiles" subtitle="Only one Reference Profile can be Active per laboratory at any given time">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
+                <th className="p-3">Profile Name</th>
+                <th className="p-3">Laboratory</th>
+                <th className="p-3">Created By</th>
+                <th className="p-3">Created Date</th>
+                <th className="p-3">Cameras</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60">
+              {filteredProfiles.map((prof) => (
+                <tr key={prof.id} className="hover:bg-slate-800/40 transition">
+                  <td className="p-3 font-bold text-white font-heading">{prof.name}</td>
+                  <td className="p-3 font-semibold text-cyan-400">{prof.lab_details?.name || 'SE AI Lab 1'}</td>
+                  <td className="p-3 text-slate-300">{prof.created_by || 'Dr. Tabraiz Shams'}</td>
+                  <td className="p-3 font-mono text-[11px] text-slate-400">{new Date(prof.created_at || Date.now()).toLocaleDateString()}</td>
+                  <td className="p-3 font-mono text-[11px] text-slate-300">{prof.cameras_count ?? 1} Camera(s)</td>
+                  <td className="p-3">
+                    <Badge variant={prof.is_active ? 'success' : 'slate'} dot>
+                      {prof.is_active ? 'ACTIVE BASELINE' : 'INACTIVE'}
+                    </Badge>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-1.5">
+                      {!prof.is_active && (
+                        <Button size="sm" variant="secondary" icon={ShieldCheck} onClick={() => handleActivate(prof)}>
+                          Activate
+                        </Button>
+                      )}
+                      <Button size="sm" variant="outline" icon={Edit3} onClick={() => { setEditingProfile(prof); setIsProfileModalOpen(true); }}>
+                        Edit
+                      </Button>
+                      <Button size="sm" variant="ghost" icon={Trash2} onClick={() => handleDelete(prof)} className="text-red-400 hover:text-red-300">
+                        Delete
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       {/* Reference Image Gallery */}
-      <Card title="Reference Snapshot Gallery" subtitle="Captured baseline images stored for reference profile comparison">
+      <Card title="Reference Snapshot Gallery" subtitle="Baseline snapshot images used for AI object discrepancy comparison">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {galleryImages.map((img) => (
             <div key={img.id} className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
@@ -176,69 +249,28 @@ export const ReferenceProfilesPage = () => {
         </div>
       </Card>
 
-      {/* Asset Detection Parameters Panel */}
-      <Card title="YOLO Asset Detection & Verification Parameters" subtitle="Configure detection confidence, verification windows, and alert thresholds">
-        <form onSubmit={handleSaveDetectionSettings} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-          <div>
-            <label className="block text-slate-400 mb-1">Detection Confidence (0.1 - 1.0)</label>
-            <input
-              type="number"
-              step="0.05"
-              value={confidence}
-              onChange={(e) => setConfidence(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-slate-400 mb-1">Detection Interval (Sec)</label>
-            <input
-              type="number"
-              step="0.5"
-              value={interval}
-              onChange={(e) => setInterval(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-slate-400 mb-1">Missing Threshold (Units)</label>
-            <input
-              type="number"
-              value={threshold}
-              onChange={(e) => setThreshold(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-slate-400 mb-1">Verification Window (Frames)</label>
-            <input
-              type="number"
-              value={verificationFrames}
-              onChange={(e) => setVerificationFrames(e.target.value)}
-              className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-            />
-          </div>
-
-          <div className="lg:col-span-4 flex justify-end pt-2">
-            <Button type="submit" loading={savingSettings} icon={Save}>
-              Save Detection Settings
-            </Button>
-          </div>
-        </form>
-      </Card>
-
+      {/* Modals */}
       <ReferenceProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
-        onSubmit={handleSubmitProfile}
+        onSubmit={() => {
+          setIsProfileModalOpen(false);
+          queryClient.invalidateQueries({ queryKey: ['reference-profiles'] });
+          showToast('Reference Profile saved successfully!');
+        }}
         initialData={editingProfile}
-        cameras={camerasData?.results || []}
+        cameras={camerasList}
       />
 
-      <CaptureReferenceModal
-        isOpen={isCaptureModalOpen}
-        onClose={() => setIsCaptureModalOpen(false)}
-        cameras={camerasData?.results || []}
-        onCaptureSuccess={() => queryClient.invalidateQueries(['reference-profiles'])}
+      <ReferenceCaptureWizardModal
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+        labs={labsList}
+        cameras={camerasList}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['reference-profiles'] });
+          showToast('Reference Baseline Wizard completed and profile activated!');
+        }}
       />
     </PageContainer>
   );
