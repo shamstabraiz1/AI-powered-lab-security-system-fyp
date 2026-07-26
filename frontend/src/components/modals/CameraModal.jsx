@@ -3,14 +3,14 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Camera, Wifi, AlertCircle, CheckCircle, Lock, Eye, EyeOff } from 'lucide-react';
+import { X, Camera, Wifi, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { cameraService } from '../../services/cameraService';
 
 // IPv4 Regex
 const ipv4Regex = /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.){3}(25[0-5]|(2[0-4]|1\d|[1-9]|)\d)$/;
 
-// Camera Schema with strict validation
+// Camera Schema with validation supporting RTSP, HTTP, and HTTPS streams
 const cameraSchema = z.object({
   name: z.string().min(1, 'Camera Name is required'),
   lab: z.coerce.number().min(1, 'Laboratory selection is required'),
@@ -23,8 +23,11 @@ const cameraSchema = z.object({
     .refine((val) => ipv4Regex.test(val), { message: 'Invalid IPv4 address format (e.g. 192.168.1.100)' }),
   rtsp_url: z
     .string()
-    .min(1, 'RTSP Stream URL is required')
-    .refine((val) => val.startsWith('rtsp://'), { message: 'RTSP URL must start with rtsp://' }),
+    .min(1, 'Camera Stream URL is required')
+    .refine(
+      (val) => val.startsWith('rtsp://') || val.startsWith('http://') || val.startsWith('https://'),
+      { message: 'Camera Stream URL must begin with rtsp://, http://, or https://' }
+    ),
   location: z.string().min(1, 'Camera Location is required (e.g. Front Left, Entrance)'),
   username: z.string().optional(),
   password: z.string().optional(),
@@ -102,9 +105,9 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
 
   const handleTestConnection = async () => {
     const ip = getValues('ip_address');
-    const rtsp = getValues('rtsp_url');
+    const streamUrl = getValues('rtsp_url');
 
-    if (!rtsp || !rtsp.startsWith('rtsp://')) {
+    if (!streamUrl || (!streamUrl.startsWith('rtsp://') && !streamUrl.startsWith('http://') && !streamUrl.startsWith('https://'))) {
       setTestResult({ status: 'Invalid Stream URL', success: false });
       return;
     }
@@ -113,7 +116,7 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
     setTestResult(null);
 
     try {
-      const res = await cameraService.testConnection({ ip_address: ip, rtsp_url: rtsp });
+      const res = await cameraService.testConnection({ ip_address: ip, rtsp_url: streamUrl });
       setTestResult({
         status: res.status || 'Connected Successfully ✅',
         latency: res.latency || '14ms',
@@ -212,19 +215,19 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
 
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="block text-slate-300 font-semibold">RTSP Stream Source URL *</label>
+                <label className="block text-slate-300 font-semibold">Camera Stream URL * (RTSP / HTTP / MJPEG)</label>
                 <button
                   type="button"
                   onClick={handleTestConnection}
                   disabled={testing}
                   className="text-[11px] text-cyan-400 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
                 >
-                  <Wifi className="w-3 h-3" /> {testing ? 'Testing RTSP...' : 'Test Connection'}
+                  <Wifi className="w-3 h-3" /> {testing ? 'Testing Stream...' : 'Test Connection'}
                 </button>
               </div>
               <input
                 type="text"
-                placeholder="rtsp://admin:password@192.168.1.100:554/stream1"
+                placeholder="rtsp://192.168.1.100:554/stream1 or http://192.168.100.41:8080/video"
                 {...register('rtsp_url')}
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500"
               />
@@ -259,7 +262,7 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
                 <label className="block text-slate-300 mb-1 font-semibold">Brand</label>
                 <input
                   type="text"
-                  placeholder="Hikvision / Dahua"
+                  placeholder="Hikvision / Dahua / Mobile Webcam"
                   {...register('brand')}
                   className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
                 />
@@ -269,7 +272,7 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
                 <label className="block text-slate-300 mb-1 font-semibold">Model</label>
                 <input
                   type="text"
-                  placeholder="DS-2CD2043G0-I"
+                  placeholder="DS-2CD2043G0-I / IP Webcam App"
                   {...register('model_name')}
                   className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
                 />
@@ -278,7 +281,7 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-300 mb-1 font-semibold">RTSP Username</label>
+                <label className="block text-slate-300 mb-1 font-semibold">Stream Username</label>
                 <input
                   type="text"
                   placeholder="admin"
@@ -288,7 +291,7 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
               </div>
 
               <div>
-                <label className="block text-slate-300 mb-1 font-semibold">RTSP Password</label>
+                <label className="block text-slate-300 mb-1 font-semibold">Stream Password</label>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}

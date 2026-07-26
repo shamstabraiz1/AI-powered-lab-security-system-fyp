@@ -74,7 +74,7 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
     await new Promise((resolve) => setTimeout(resolve, 800));
 
     setTestResult({
-      status: 'Connected',
+      status: 'Connected Successfully ✅',
       latency: `${Math.floor(Math.random() * 10) + 12} ms`,
       timestamp: new Date().toLocaleTimeString(),
     });
@@ -96,7 +96,7 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
           <div className="flex justify-between items-center pb-3 border-b border-slate-800">
             <div>
               <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest block font-heading">
-                CCTV CAMERA PREVIEW & RTSP DIAGNOSTICS
+                CCTV CAMERA PREVIEW & STREAM DIAGNOSTICS
               </span>
               <h3 className="text-base font-extrabold text-white font-heading mt-0.5">
                 {camera.name}
@@ -116,7 +116,7 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
             <div className="lg:col-span-2 aspect-video bg-black rounded-xl overflow-hidden relative border border-slate-800">
               <canvas ref={canvasRef} width={640} height={360} className="w-full h-full object-cover" />
               <div className="absolute top-2 left-2 bg-slate-950/80 backdrop-blur px-2 py-0.5 rounded text-[10px] font-semibold text-white">
-                LIVE RTSP STREAM &bull; {camera.resolution || '1920x1080'}
+                LIVE CAMERA STREAM &bull; {camera.resolution || '1920x1080'}
               </div>
               <div className="absolute bottom-2 right-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
                 20 FPS &bull; YOLOv8 Active
@@ -134,7 +134,7 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
                   </div>
                   <div className="flex justify-between">
                     <span>Type:</span>
-                    <span className="font-semibold text-slate-200">{camera.camera_type || 'IP Overhead'}</span>
+                    <span className="font-semibold text-slate-200">{camera.camera_type || 'IP Camera'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>FPS:</span>
@@ -146,11 +146,11 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
                   </div>
                 </div>
 
-                {/* RTSP URL */}
+                {/* Camera Stream URL */}
                 <div className="pt-2 border-t border-slate-800">
-                  <span className="text-[10px] text-slate-500 block uppercase font-semibold">RTSP Source</span>
+                  <span className="text-[10px] text-slate-500 block uppercase font-semibold">Camera Stream URL</span>
                   <span className="font-mono text-[10px] text-slate-300 truncate block">
-                    {camera.ip_address}
+                    {camera.rtsp_url || camera.ip_address}
                   </span>
                 </div>
 
@@ -162,7 +162,7 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
                     className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 space-y-1"
                   >
                     <div className="flex items-center gap-1 font-bold">
-                      <CheckCircle className="w-3.5 h-3.5" /> RTSP Connection Verified
+                      <CheckCircle className="w-3.5 h-3.5" /> Stream Connection Verified
                     </div>
                     <div className="flex justify-between text-[10px] text-slate-300">
                       <span>Latency: <strong className="text-cyan-400">{testResult.latency}</strong></span>
@@ -180,7 +180,7 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
                 icon={Wifi}
                 className="w-full"
               >
-                {testing ? 'Pinging RTSP Stream...' : 'Test Connection'}
+                {testing ? 'Testing Stream...' : 'Test Connection'}
               </Button>
             </div>
           </div>

@@ -153,7 +153,8 @@ export const CamerasPage = () => {
     <PageContainer>
       <PageHeader
         title="IP CCTV Camera Management Infrastructure"
-        subtitle="Configure IP cameras, RTSP streams, position locations, and live diagnostic previews for AI monitoring"
+        subtitle="Configure IP cameras, RTSP/HTTP/MJPEG video streams, position locations, and live diagnostic previews"
+
         icon={Camera}
         actions={
           <div className="flex items-center gap-2">

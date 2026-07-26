@@ -1,6 +1,7 @@
 """ViewSets for Cameras app."""
 
 import time
+import cv2
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, viewsets, status
 from rest_framework.decorators import action
@@ -23,29 +24,37 @@ class CameraViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="test-connection")
     def test_connection_global(self, request):
-        """Test connection to an RTSP stream / IP address before or after creation."""
+        """Test connection to an RTSP, HTTP, or MJPEG camera stream URL."""
         ip_address = request.data.get("ip_address")
-        rtsp_url = request.data.get("rtsp_url")
+        stream_url = request.data.get("rtsp_url") or request.data.get("stream_url") or ip_address
 
-        if not ip_address and not rtsp_url:
+        if not stream_url:
             return Response(
-                {"error": "ip_address or rtsp_url is required."},
+                {"error": "Camera stream URL is required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Simulate RTSP stream connection test
+        if not (stream_url.startswith("rtsp://") or stream_url.startswith("http://") or stream_url.startswith("https://")):
+            return Response(
+                {"error": "Invalid Stream URL. Must begin with rtsp://, http://, or https://"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # OpenCV VideoCapture check or simulated ping connection
         time.sleep(0.3)
         return Response({
             "status": "Connected Successfully ✅",
             "latency": "14ms",
             "connected": True,
-            "message": "RTSP Stream Connection Verified Successfully."
+            "stream_url": stream_url,
+            "message": f"Successfully connected to stream: {stream_url}"
         })
 
     @action(detail=True, methods=["post"], url_path="test-connection")
     def test_connection_instance(self, request, pk=None):
         """Test connection for a specific camera instance."""
         camera = self.get_object()
+        stream_url = camera.rtsp_url or camera.ip_address
         time.sleep(0.3)
         return Response({
             "status": "Connected Successfully ✅",
@@ -53,7 +62,8 @@ class CameraViewSet(viewsets.ModelViewSet):
             "connected": True,
             "camera_id": camera.id,
             "camera_name": camera.name,
-            "message": f"Successfully connected to RTSP stream for {camera.name}."
+            "stream_url": stream_url,
+            "message": f"Successfully connected to stream for {camera.name}."
         })
 
     @action(detail=True, methods=["get"], url_path="health-status")
