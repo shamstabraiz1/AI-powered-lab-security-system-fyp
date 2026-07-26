@@ -10,7 +10,7 @@ import { EvidencePage } from '../pages/EvidencePage';
 import { NotificationsPage } from '../pages/NotificationsPage';
 import { ReportsPage } from '../pages/ReportsPage';
 import { SettingsPage } from '../pages/SettingsPage';
-import { MainLayout } from '../layouts/MainLayout';
+import { DashboardLayout } from '../layouts/DashboardLayout';
 import { ProtectedRoute } from './ProtectedRoute';
 
 export const AppRoutes = () => {
@@ -19,7 +19,7 @@ export const AppRoutes = () => {
       <Route path="/login" element={<LoginPage />} />
 
       <Route element={<ProtectedRoute />}>
-        <Route element={<MainLayout />}>
+        <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/monitoring" element={<LiveMonitoringPage />} />
