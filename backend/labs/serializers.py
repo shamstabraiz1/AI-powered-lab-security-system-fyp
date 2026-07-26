@@ -7,6 +7,9 @@ from labs.models import Lab
 class LabSerializer(serializers.ModelSerializer):
     """Serializer for Lab model."""
 
+    building = serializers.CharField(max_length=100, required=False, default="Software Engineering Building")
+    room_number = serializers.CharField(max_length=20, required=False, default="101")
+    total_computers = serializers.IntegerField(required=False, default=30)
     cameras_count = serializers.SerializerMethodField()
     assets_count = serializers.SerializerMethodField()
 
