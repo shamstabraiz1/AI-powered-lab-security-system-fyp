@@ -18,10 +18,22 @@ class CameraSerializer(serializers.ModelSerializer):
             "lab_details",
             "name",
             "serial_number",
+            "brand",
+            "model_name",
+            "ip_address",
+            "rtsp_url",
+            "username",
+            "password",
             "location",
+            "resolution",
+            "fps",
+            "is_active",
             "status",
             "reference_image",
             "last_seen",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+        extra_kwargs = {
+            "password": {"write_only": True, "required": False},
+        }

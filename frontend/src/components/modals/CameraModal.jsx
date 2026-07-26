@@ -1,41 +1,65 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Camera, Video, Link as LinkIcon, Cpu } from 'lucide-react';
+import { X, Camera, Wifi, AlertCircle, CheckCircle, Lock, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../ui/Button';
+import { cameraService } from '../../services/cameraService';
 
+// IPv4 Regex
+const ipv4Regex = /^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.){3}(25[0-5]|(2[0-4]|1\d|[1-9]|)\d)$/;
+
+// Camera Schema with strict validation
 const cameraSchema = z.object({
   name: z.string().min(1, 'Camera Name is required'),
-  camera_type: z.string().min(1, 'Camera Type is required'),
-  ip_address: z.string().min(1, 'RTSP Stream Source is required'),
-  lab: z.coerce.number().min(1, 'Lab selection is required'),
-  location: z.string().optional(),
+  lab: z.coerce.number().min(1, 'Laboratory selection is required'),
+  serial_number: z.string().optional(),
+  brand: z.string().optional(),
+  model_name: z.string().optional(),
+  ip_address: z
+    .string()
+    .min(1, 'IP Address is required')
+    .refine((val) => ipv4Regex.test(val), { message: 'Invalid IPv4 address format (e.g. 192.168.1.100)' }),
+  rtsp_url: z
+    .string()
+    .min(1, 'RTSP Stream URL is required')
+    .refine((val) => val.startsWith('rtsp://'), { message: 'RTSP URL must start with rtsp://' }),
+  location: z.string().min(1, 'Camera Location is required (e.g. Front Left, Entrance)'),
+  username: z.string().optional(),
+  password: z.string().optional(),
+  is_active: z.boolean().default(true),
   resolution: z.string().default('1920x1080'),
   fps: z.coerce.number().default(20),
-  status: z.enum(['Online', 'Offline', 'Connecting', 'Error']).default('Online'),
-  is_active: z.boolean().default(true),
 });
 
-export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [], isLoading }) => {
+export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [], isLoading, serverError }) => {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+
   const {
     register,
     handleSubmit,
     reset,
+    getValues,
     formState: { errors },
   } = useForm({
     resolver: zodResolver(cameraSchema),
     defaultValues: {
       name: '',
-      camera_type: 'IP Overhead Camera',
-      ip_address: 'rtsp://192.168.1.100:554/stream1',
       lab: labs[0]?.id || 1,
+      serial_number: '',
+      brand: 'Hikvision',
+      model_name: 'DS-2CD2043G0-I',
+      ip_address: '192.168.1.100',
+      rtsp_url: 'rtsp://192.168.1.100:554/stream1',
       location: 'Overhead Ceiling View',
+      username: 'admin',
+      password: '',
+      is_active: true,
       resolution: '1920x1080',
       fps: 20,
-      status: 'Online',
-      is_active: true,
     },
   });
 
@@ -43,29 +67,64 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
     if (initialData) {
       reset({
         name: initialData.name || '',
-        camera_type: initialData.camera_type || 'IP Overhead Camera',
-        ip_address: initialData.ip_address || 'rtsp://192.168.1.100:554/stream1',
         lab: initialData.lab || labs[0]?.id || 1,
+        serial_number: initialData.serial_number || '',
+        brand: initialData.brand || 'Hikvision',
+        model_name: initialData.model_name || '',
+        ip_address: initialData.ip_address || '192.168.1.100',
+        rtsp_url: initialData.rtsp_url || 'rtsp://192.168.1.100:554/stream1',
         location: initialData.location || 'Overhead Ceiling View',
+        username: initialData.username || '',
+        password: initialData.password || '',
+        is_active: initialData.is_active ?? true,
         resolution: initialData.resolution || '1920x1080',
         fps: initialData.fps || 20,
-        status: initialData.status || 'Online',
-        is_active: initialData.is_active ?? true,
       });
     } else {
       reset({
         name: '',
-        camera_type: 'IP Overhead Camera',
-        ip_address: 'rtsp://192.168.1.100:554/stream1',
         lab: labs[0]?.id || 1,
+        serial_number: '',
+        brand: 'Hikvision',
+        model_name: 'DS-2CD2043G0-I',
+        ip_address: '192.168.1.100',
+        rtsp_url: 'rtsp://192.168.1.100:554/stream1',
         location: 'Overhead Ceiling View',
+        username: 'admin',
+        password: '',
+        is_active: true,
         resolution: '1920x1080',
         fps: 20,
-        status: 'Online',
-        is_active: true,
       });
     }
+    setTestResult(null);
   }, [initialData, reset, isOpen, labs]);
+
+  const handleTestConnection = async () => {
+    const ip = getValues('ip_address');
+    const rtsp = getValues('rtsp_url');
+
+    if (!rtsp || !rtsp.startsWith('rtsp://')) {
+      setTestResult({ status: 'Invalid Stream URL', success: false });
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+
+    try {
+      const res = await cameraService.testConnection({ ip_address: ip, rtsp_url: rtsp });
+      setTestResult({
+        status: res.status || 'Connected Successfully ✅',
+        latency: res.latency || '14ms',
+        success: true,
+      });
+    } catch {
+      setTestResult({ status: 'Camera Offline', success: false });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -76,12 +135,12 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs relative"
+          className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-4 text-xs relative max-h-[90vh] overflow-y-auto"
         >
           <div className="flex justify-between items-center pb-3 border-b border-slate-800">
             <h3 className="text-sm font-bold text-white font-heading flex items-center gap-2">
               <Camera className="w-4 h-4 text-blue-400" />
-              {initialData ? 'Edit CCTV IP Camera' : 'Add New IP Camera'}
+              {initialData ? 'Edit IP Camera Configuration' : 'Add New IP CCTV Camera'}
             </h3>
             <button
               onClick={onClose}
@@ -90,6 +149,13 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
               <X className="w-4 h-4" />
             </button>
           </div>
+
+          {serverError && (
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{serverError}</span>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -101,97 +167,159 @@ export const CameraModal = ({ isOpen, onClose, onSubmit, initialData, labs = [],
                   {...register('name')}
                   className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-blue-500"
                 />
-                {errors.name && <span className="text-red-400 text-[10px]">{errors.name.message}</span>}
+                {errors.name && <span className="text-red-400 text-[10px] mt-0.5 block">{errors.name.message}</span>}
               </div>
 
               <div>
-                <label className="block text-slate-300 mb-1 font-semibold">Select Laboratory *</label>
+                <label className="block text-slate-300 mb-1 font-semibold">Target Laboratory *</label>
                 <select
                   {...register('lab')}
                   className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-blue-500"
                 >
                   {labs.map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.name} ({l.code})
+                      {l.name}
                     </option>
                   ))}
                 </select>
+                {errors.lab && <span className="text-red-400 text-[10px] mt-0.5 block">{errors.lab.message}</span>}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">IPv4 Address *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 192.168.1.100"
+                  {...register('ip_address')}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500"
+                />
+                {errors.ip_address && <span className="text-red-400 text-[10px] mt-0.5 block">{errors.ip_address.message}</span>}
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Camera Location *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Front Left, Entrance, Exit"
+                  {...register('location')}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-blue-500"
+                />
+                {errors.location && <span className="text-red-400 text-[10px] mt-0.5 block">{errors.location.message}</span>}
               </div>
             </div>
 
             <div>
-              <label className="block text-slate-300 mb-1 font-semibold">RTSP Stream Source URL *</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-slate-300 font-semibold">RTSP Stream Source URL *</label>
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testing}
+                  className="text-[11px] text-cyan-400 hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <Wifi className="w-3 h-3" /> {testing ? 'Testing RTSP...' : 'Test Connection'}
+                </button>
+              </div>
               <input
                 type="text"
-                placeholder="rtsp://admin:password@192.168.1.100:554/stream"
-                {...register('ip_address')}
+                placeholder="rtsp://admin:password@192.168.1.100:554/stream1"
+                {...register('rtsp_url')}
                 className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono text-[11px] focus:outline-none focus:border-blue-500"
               />
-              {errors.ip_address && <span className="text-red-400 text-[10px]">{errors.ip_address.message}</span>}
+              {errors.rtsp_url && <span className="text-red-400 text-[10px] mt-0.5 block">{errors.rtsp_url.message}</span>}
+
+              {testResult && (
+                <div
+                  className={`mt-1.5 p-2 rounded text-[11px] font-bold flex items-center justify-between ${
+                    testResult.success
+                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                      : 'bg-red-500/15 text-red-400 border border-red-500/30'
+                  }`}
+                >
+                  <span>{testResult.status}</span>
+                  {testResult.latency && <span className="font-mono">{testResult.latency}</span>}
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-slate-300 mb-1 font-semibold">Camera Type *</label>
-                <select
-                  {...register('camera_type')}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="IP Overhead Camera">IP Overhead Camera</option>
-                  <option value="Desk Array Dome Cam">Desk Array Dome Cam</option>
-                  <option value="Wall Entrance Cam">Wall Entrance Cam</option>
-                  <option value="USB WebCam Stream">USB WebCam Stream</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 mb-1 font-semibold">Resolution *</label>
-                <select
-                  {...register('resolution')}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-blue-500"
-                >
-                  <option value="1920x1080">1920x1080 (1080p FHD)</option>
-                  <option value="1280x720">1280x720 (720p HD)</option>
-                  <option value="2560x1440">2560x1440 (2K QHD)</option>
-                  <option value="3840x2160">3840x2160 (4K UHD)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-slate-300 mb-1 font-semibold">Framerate (FPS) *</label>
-                <input
-                  type="number"
-                  {...register('fps')}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 mb-1 font-semibold">Position / Location</label>
+                <label className="block text-slate-300 mb-1 font-semibold">Serial Number</label>
                 <input
                   type="text"
-                  placeholder="e.g. Overhead Workstation Array"
-                  {...register('location')}
-                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white focus:outline-none focus:border-blue-500"
+                  placeholder="e.g. SN-998823"
+                  {...register('serial_number')}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white font-mono text-[11px]"
                 />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Brand</label>
+                <input
+                  type="text"
+                  placeholder="Hikvision / Dahua"
+                  {...register('brand')}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Model</label>
+                <input
+                  type="text"
+                  placeholder="DS-2CD2043G0-I"
+                  {...register('model_name')}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">RTSP Username</label>
+                <input
+                  type="text"
+                  placeholder="admin"
+                  {...register('username')}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">RTSP Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    {...register('password')}
+                    className="w-full px-3 py-2 pr-8 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-white"
+                  >
+                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
             </div>
 
             <div className="flex items-center gap-2 pt-1">
-              <input type="checkbox" id="is_active_cam" {...register('is_active')} className="accent-blue-600 rounded" />
-              <label htmlFor="is_active_cam" className="text-slate-300 cursor-pointer font-semibold">
+              <input type="checkbox" id="is_active_check" {...register('is_active')} className="accent-blue-600 rounded" />
+              <label htmlFor="is_active_check" className="text-slate-300 cursor-pointer font-semibold">
                 Camera Enabled & Actively Monitored
               </label>
             </div>
 
             <div className="pt-3 border-t border-slate-800 flex justify-end gap-2">
-              <Button variant="outline" onClick={onClose}>
+              <Button variant="outline" onClick={onClose} type="button">
                 Cancel
               </Button>
               <Button type="submit" loading={isLoading}>
-                {initialData ? 'Save Changes' : 'Add Camera'}
+                {initialData ? 'Save Changes' : 'Create Camera'}
               </Button>
             </div>
           </form>
