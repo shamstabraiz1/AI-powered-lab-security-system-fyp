@@ -22,6 +22,8 @@ import {
 
 const menuItems = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+  { name: 'Laboratories', path: '/labs', icon: FlaskConical },
+  { name: 'IP Cameras', path: '/cameras', icon: Camera },
   { name: 'Lab Sessions', path: '/sessions', icon: FlaskConical },
   { name: 'Live Monitoring', path: '/monitoring', icon: Eye },
   { name: 'Incidents', path: '/incidents', icon: AlertTriangle },
@@ -31,6 +33,7 @@ const menuItems = [
   { name: 'Reference Profiles', path: '/reference', icon: Camera },
   { name: 'Settings', path: '/settings', icon: Settings },
 ];
+
 
 export const Sidebar = ({ isCollapsed, onToggleCollapse, isMobileOpen, onCloseMobile }) => {
   const location = useLocation();

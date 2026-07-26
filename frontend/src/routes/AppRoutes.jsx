@@ -2,6 +2,8 @@ import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
+import { LabsPage } from '../pages/LabsPage';
+import { CamerasPage } from '../pages/CamerasPage';
 import { SessionsPage } from '../pages/SessionsPage';
 import { LiveMonitoringPage } from '../pages/LiveMonitoringPage';
 import { ReferenceProfilesPage } from '../pages/ReferenceProfilesPage';
@@ -21,6 +23,8 @@ export const AppRoutes = () => {
       <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/labs" element={<LabsPage />} />
+          <Route path="/cameras" element={<CamerasPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/monitoring" element={<LiveMonitoringPage />} />
           <Route path="/incidents" element={<IncidentsPage />} />
