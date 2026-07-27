@@ -67,25 +67,35 @@ class MonitoringEngine:
         self._verification_counter: Dict[Tuple[int, int], int] = {}
 
     def get_active_reference_profile(self, camera: Camera) -> ReferenceProfile:
-        """Retrieve the active reference profile for a camera.
+        """Retrieve the active reference profile for a camera or its laboratory.
 
         Raises:
-            ReferenceDetectorError: If no active reference profile exists for the camera.
+            ReferenceDetectorError: If no active reference profile exists for the camera or lab.
         """
         profile = (
             ReferenceProfile.objects.filter(camera=camera, is_active=True)
-            .select_related("camera", "camera__lab")
+            .select_related("camera", "camera__lab", "lab")
             .prefetch_related("assets", "assets__asset")
             .order_by("-created_at")
             .first()
         )
 
+        if not profile and camera.lab:
+            profile = (
+                ReferenceProfile.objects.filter(lab=camera.lab, is_active=True)
+                .select_related("camera", "camera__lab", "lab")
+                .prefetch_related("assets", "assets__asset")
+                .order_by("-created_at")
+                .first()
+            )
+
         if not profile:
-            error_msg = f"[PIPELINE FAILURE - STAGE 3] No active ReferenceProfile found for camera ID {camera.id} ({camera.name})."
+            error_msg = f"[PIPELINE FAILURE - STAGE 3] ERROR: No active Reference Profile found for camera ID {camera.id} ({camera.name}) or Lab '{camera.lab.name if camera.lab else 'Unassigned'}'."
             log_stage(error_msg)
             raise ReferenceDetectorError(error_msg)
 
         return profile
+
 
     def compare_assets(
         self,

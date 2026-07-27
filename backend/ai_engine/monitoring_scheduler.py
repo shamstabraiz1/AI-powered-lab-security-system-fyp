@@ -194,12 +194,12 @@ class MonitoringScheduler:
         logger.info("Dynamic Camera Discovery loop stopped.")
 
     def _sync_cameras(self) -> None:
-        """Query database for online cameras and synchronize running worker threads."""
+        """Query database for online/active cameras and synchronize running worker threads."""
         try:
-            # Query online cameras from PostgreSQL DB
-            online_cameras = list(Camera.objects.filter(status="Online"))
+            # Query online and active cameras from PostgreSQL DB
+            online_cameras = list(Camera.objects.filter(status="Online", is_active=True))
             online_cam_ids: Set[int] = {cam.id for cam in online_cameras}
-            logger.info("Discovery check: Found %d online camera(s) in database.", len(online_cameras))
+            logger.info("Discovery check: Found %d online/active camera(s) in database.", len(online_cameras))
 
         except Exception as exc:
             logger.error("Failed to query Camera database: %s", str(exc))
@@ -230,24 +230,16 @@ class MonitoringScheduler:
                     }
                     worker_thread.start()
 
-            # Stop worker for any camera that is no longer Online or has been deleted
+            # Stop worker for any camera that is no longer Online/Active or has been deleted
             for cam_id, thread in list(self._worker_threads.items()):
                 if cam_id not in online_cam_ids:
-                    logger.info("Camera ID %d is no longer Online. Stopping worker thread...", cam_id)
+                    logger.info("Camera ID %d is no longer Online/Active. Stopping worker thread...", cam_id)
                     stop_evt = self._worker_stop_events.get(cam_id)
                     if stop_evt:
                         stop_evt.set()
 
     def _camera_worker(self, camera_id: int, stop_event: threading.Event) -> None:
-        """Dedicated continuous worker loop for a single camera.
-
-        Handles frame capture, YOLO detection, reference comparison, incident creation,
-        and automatic connection recovery without crashing the scheduler.
-
-        Args:
-            camera_id: Camera ID to monitor.
-            stop_event: Event to signal worker termination.
-        """
+        """Dedicated continuous worker loop for a single camera."""
         logger.info("Worker thread started for Camera ID %d.", camera_id)
         cam_service: Optional[CameraService] = None
         was_disconnected = False
@@ -255,10 +247,12 @@ class MonitoringScheduler:
         while self.running and not stop_event.is_set():
             try:
                 # Fetch fresh camera instance from DB
-                camera = Camera.objects.filter(id=camera_id, status="Online").first()
+                camera = Camera.objects.filter(id=camera_id, status="Online", is_active=True).first()
                 if not camera:
                     logger.info("Camera ID %d is offline or deleted in DB. Exiting worker thread.", camera_id)
                     break
+
+
 
                 # Initialize or reuse CameraService connection
                 source = camera.location if camera.location and ("://" in camera.location or camera.location.isdigit()) else 0
