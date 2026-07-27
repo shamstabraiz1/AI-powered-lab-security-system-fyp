@@ -28,17 +28,17 @@ import {
   Camera as CameraIcon,
 } from 'lucide-react';
 
-// Stream component displaying actual camera URL saved in database
+// Stream component displaying backend MJPEG continuous video stream with YOLO detections
 const RealCameraStreamCard = ({ camera, isMonitoring }) => {
   const [streamError, setStreamError] = useState(false);
+  const backendStreamUrl = `/api/cameras/${camera.id}/stream/`;
   const streamUrl = camera.rtsp_url || camera.ip_address;
 
   return (
     <div className="aspect-video bg-black rounded-xl overflow-hidden relative border border-slate-800 shadow-xl group">
-      {/* Real Stream Image Element for HTTP/MJPEG streams or fallback placeholder */}
-      {streamUrl && (streamUrl.startsWith('http://') || streamUrl.startsWith('https://')) && !streamError ? (
+      {!streamError ? (
         <img
-          src={streamUrl}
+          src={backendStreamUrl}
           alt={camera.name}
           onError={() => setStreamError(true)}
           className="w-full h-full object-cover"
@@ -48,15 +48,9 @@ const RealCameraStreamCard = ({ camera, isMonitoring }) => {
           <CameraIcon className="w-8 h-8 text-cyan-400 opacity-70" />
           <span className="text-xs text-slate-300 font-bold">{camera.name}</span>
           <span className="text-[10px] text-slate-500 font-mono truncate max-w-xs">{streamUrl}</span>
-          {streamError ? (
-            <span className="text-[10px] text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded">
-              Stream Connection Unavailable
-            </span>
-          ) : (
-            <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded">
-              {isMonitoring ? 'Live Monitoring Ready' : 'Stream Standby'}
-            </span>
-          )}
+          <span className="text-[10px] text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded">
+            Stream Connection Unavailable
+          </span>
         </div>
       )}
 
@@ -72,6 +66,7 @@ const RealCameraStreamCard = ({ camera, isMonitoring }) => {
     </div>
   );
 };
+
 
 export const LiveMonitoringPage = () => {
   const queryClient = useQueryClient();

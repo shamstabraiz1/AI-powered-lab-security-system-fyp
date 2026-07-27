@@ -1,77 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Video, Activity, CheckCircle, AlertTriangle, RefreshCw, Cpu, Wifi } from 'lucide-react';
+import { X, CheckCircle, Wifi, Camera as CameraIcon } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 
 export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
-  const canvasRef = useRef(null);
+  const [streamError, setStreamError] = useState(false);
 
-  useEffect(() => {
-    if (!isOpen || !camera) return;
+  if (!isOpen || !camera) return null;
 
-    let animFrame;
-    let phase = 0;
-
-    const drawStream = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width;
-      const h = canvas.height;
-
-      ctx.fillStyle = '#0f172a';
-      ctx.fillRect(0, 0, w, h);
-
-      // Grid Lines
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < w; i += 40) {
-        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke();
-      }
-      for (let j = 0; j < h; j += 40) {
-        ctx.beginPath(); ctx.moveTo(0, j); ctx.lineTo(w, j); ctx.stroke();
-      }
-
-      // Animated bounding boxes
-      const boxes = [
-        { label: 'Monitor', conf: 0.96, x: 60, y: 50, w: 120, h: 80, color: '#10b981' },
-        { label: 'Keyboard', conf: 0.92, x: 60, y: 150, w: 100, h: 40, color: '#38bdf8' },
-        { label: 'Mouse', conf: 0.94, x: 180, y: 150, w: 40, h: 40, color: '#10b981' },
-      ];
-
-      boxes.forEach((box) => {
-        const jitterX = Math.sin(phase) * 1.2;
-        const bx = box.x + jitterX;
-        const by = box.y;
-
-        ctx.strokeStyle = box.color;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(bx, by, box.w, box.h);
-
-        ctx.fillStyle = box.color;
-        ctx.fillRect(bx, by - 18, box.w, 18);
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '10px Inter, sans-serif';
-        ctx.fillText(`${box.label} ${(box.conf * 100).toFixed(0)}%`, bx + 4, by - 5);
-      });
-
-      phase += 0.05;
-      animFrame = requestAnimationFrame(drawStream);
-    };
-
-    drawStream();
-    return () => cancelAnimationFrame(animFrame);
-  }, [isOpen, camera]);
+  const backendStreamUrl = `/api/cameras/${camera.id}/stream/`;
 
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
 
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
     setTestResult({
       status: 'Connected Successfully ✅',
@@ -80,8 +26,6 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
     });
     setTesting(false);
   };
-
-  if (!isOpen || !camera) return null;
 
   return (
     <AnimatePresence>
@@ -96,7 +40,7 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
           <div className="flex justify-between items-center pb-3 border-b border-slate-800">
             <div>
               <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest block font-heading">
-                CCTV CAMERA PREVIEW & STREAM DIAGNOSTICS
+                CCTV CAMERA LIVE STREAM & STREAM DIAGNOSTICS
               </span>
               <h3 className="text-base font-extrabold text-white font-heading mt-0.5">
                 {camera.name}
@@ -112,14 +56,29 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
 
           {/* Video Stream & Information */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Canvas Stream */}
+            {/* Live Stream Viewport */}
             <div className="lg:col-span-2 aspect-video bg-black rounded-xl overflow-hidden relative border border-slate-800">
-              <canvas ref={canvasRef} width={640} height={360} className="w-full h-full object-cover" />
+              {!streamError ? (
+                <img
+                  src={backendStreamUrl}
+                  alt={camera.name}
+                  onError={() => setStreamError(true)}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 p-4 text-center space-y-2">
+                  <CameraIcon className="w-8 h-8 text-cyan-400 opacity-70" />
+                  <span className="text-xs text-slate-300 font-bold">{camera.name}</span>
+                  <span className="text-[10px] text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded">
+                    Stream Connection Unavailable
+                  </span>
+                </div>
+              )}
               <div className="absolute top-2 left-2 bg-slate-950/80 backdrop-blur px-2 py-0.5 rounded text-[10px] font-semibold text-white">
                 LIVE CAMERA STREAM &bull; {camera.resolution || '1920x1080'}
               </div>
               <div className="absolute bottom-2 right-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold">
-                20 FPS &bull; YOLOv8 Active
+                YOLOv8 Real-time Detection
               </div>
             </div>
 
@@ -130,11 +89,11 @@ export const CameraPreviewModal = ({ isOpen, onClose, camera }) => {
                 <div className="space-y-1.5 text-[11px] text-slate-400">
                   <div className="flex justify-between">
                     <span>Status:</span>
-                    <Badge variant="success" dot>{camera.status || 'Online'}</Badge>
+                    <Badge variant={camera.status === 'Online' ? 'success' : 'slate'} dot>{camera.status || 'Online'}</Badge>
                   </div>
                   <div className="flex justify-between">
                     <span>Type:</span>
-                    <span className="font-semibold text-slate-200">{camera.camera_type || 'IP Camera'}</span>
+                    <span className="font-semibold text-slate-200">{camera.brand || 'IP Camera'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>FPS:</span>

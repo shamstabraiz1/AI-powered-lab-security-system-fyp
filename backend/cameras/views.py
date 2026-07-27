@@ -2,8 +2,9 @@
 
 import time
 import cv2
+from django.http import StreamingHttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters, viewsets, status
+from rest_framework import filters, viewsets, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from cameras.models import Camera
@@ -12,7 +13,7 @@ from core.permissions import IsAdminOrSecurityOfficer
 
 
 class CameraViewSet(viewsets.ModelViewSet):
-    """ViewSet for viewing and managing Camera records."""
+    """ViewSet for viewing, streaming, and managing Camera records."""
 
     queryset = Camera.objects.select_related("lab").all().order_by("-created_at")
     serializer_class = CameraSerializer
@@ -21,6 +22,51 @@ class CameraViewSet(viewsets.ModelViewSet):
     filterset_fields = ["status", "lab", "is_active"]
     search_fields = ["name", "serial_number", "location", "ip_address", "rtsp_url", "lab__name"]
     ordering_fields = ["name", "created_at", "status"]
+
+    @action(detail=True, methods=["get"], url_path="stream", permission_classes=[permissions.AllowAny])
+    def live_stream(self, request, pk=None):
+        """Continuous MJPEG Video Stream with live YOLO object detection annotations."""
+        camera = self.get_object()
+        stream_source = camera.rtsp_url or camera.ip_address
+
+        def generate_mjpeg():
+            # Import YOLO model lazily
+            from ai_engine.detector import model
+
+            source = stream_source if (stream_source and ("://" in stream_source or stream_source.isdigit())) else 0
+            cap = cv2.VideoCapture(source)
+
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(0)
+
+            try:
+                while cap.isOpened():
+                    success, frame = cap.read()
+                    if not success or frame is None or frame.size == 0:
+                        break
+
+                    # Run YOLO object detection on the live frame
+                    try:
+                        results = model(frame, verbose=False)
+                        annotated_frame = results[0].plot()
+                    except Exception:
+                        annotated_frame = frame
+
+                    # Encode frame as JPEG
+                    ret, jpeg = cv2.imencode('.jpg', annotated_frame)
+                    if not ret:
+                        continue
+
+                    frame_bytes = jpeg.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            finally:
+                cap.release()
+
+        return StreamingHttpResponse(
+            generate_mjpeg(),
+            content_type='multipart/x-mixed-replace; boundary=frame'
+        )
 
     @action(detail=False, methods=["post"], url_path="test-connection")
     def test_connection_global(self, request):
@@ -40,7 +86,6 @@ class CameraViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # OpenCV VideoCapture check or simulated ping connection
         time.sleep(0.3)
         return Response({
             "status": "Connected Successfully ✅",
