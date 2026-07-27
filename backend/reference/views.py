@@ -78,20 +78,20 @@ class ReferenceProfileViewSet(viewsets.ModelViewSet):
 
         lab = camera.lab
 
-        # 2. Connect to camera & capture 1 frame
+        # 2. Connect to camera & capture 1 frame from IP camera stream URL
         stream_source = camera.rtsp_url or camera.ip_address
-        source = stream_source if (stream_source and ("://" in stream_source or stream_source.isdigit())) else 0
 
         frame = None
         try:
-            with CameraService(source=source) as cam_service:
+            with CameraService(source=stream_source) as cam_service:
                 frame = cam_service.capture_frame()
         except Exception as cam_err:
-            logger.warning("Camera capture error for source %s: %s. Using OpenCV camera fallback...", source, str(cam_err))
-            cap = cv2.VideoCapture(source if isinstance(source, int) or "://" in str(source) else 0)
+            logger.warning("CameraService error for stream URL %s: %s. Trying OpenCV direct capture...", stream_source, str(cam_err))
+            cap = cv2.VideoCapture(stream_source)
             if cap.isOpened():
                 ret, frame = cap.read()
                 cap.release()
+
 
         if frame is None or frame.size == 0:
             return Response(

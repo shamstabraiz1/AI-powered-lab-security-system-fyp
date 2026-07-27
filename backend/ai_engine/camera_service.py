@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 class CameraService:
     """Service dedicated to camera connection management and frame acquisition.
 
-    Supports RTSP URLs, HTTP video streams, and local USB webcam indices.
+    Supports RTSP URLs, HTTP video streams (e.g. mobile IP Webcam), and explicit webcam indices.
+    Never opens default laptop webcam unless explicitly requested.
     """
 
     def __init__(
@@ -21,13 +22,12 @@ class CameraService:
         source: Union[str, int],
         connect_timeout: float = 10.0
     ) -> None:
-        """Initialize CameraService with stream source.
+        """Initialize CameraService with stream source URL.
 
         Args:
-            source: IP camera URL (RTSP/HTTP), video file path, or webcam index (e.g. 0).
+            source: IP camera stream URL (RTSP/HTTP e.g. http://192.168.100.41:8080/video).
             connect_timeout: Maximum timeout threshold in seconds for connection attempt.
         """
-        # Convert string index to integer if source is a numeric string
         if isinstance(source, str) and source.isdigit():
             self.source: Union[str, int] = int(source)
         else:
@@ -37,30 +37,23 @@ class CameraService:
         self.cap: Optional[cv2.VideoCapture] = None
 
     def connect(self) -> bool:
-        """Establish connection to camera stream.
-
-        Returns:
-            bool: True if connection is successfully opened.
-
-        Raises:
-            CameraConnectionError: If unable to open camera stream source.
-        """
+        """Establish connection to camera stream URL without falling back to local webcams."""
         if self.is_connected():
-            logger.info("Camera already connected to source: %s", self.source)
+            logger.info("Camera already connected to stream source: %s", self.source)
             return True
 
-        logger.info("Attempting to connect to camera source: %s", self.source)
+        logger.info("Connecting to camera stream source: %s", self.source)
 
         try:
-            # Initialize OpenCV VideoCapture
+            # Initialize OpenCV VideoCapture with the explicit stream URL
             self.cap = cv2.VideoCapture(self.source)
 
             if not self.cap or not self.cap.isOpened():
-                error_msg = f"Failed to connect to camera stream at source: {self.source}"
+                error_msg = f"Failed to connect to camera stream at URL: {self.source}"
                 logger.error(error_msg)
                 raise CameraConnectionError(error_msg)
 
-            logger.info("Successfully connected to camera source: %s", self.source)
+            logger.info("Successfully connected to camera stream source: %s", self.source)
             return True
 
         except Exception as exc:
@@ -71,30 +64,16 @@ class CameraService:
             raise CameraConnectionError(error_msg) from exc
 
     def is_connected(self) -> bool:
-        """Check if camera stream is currently open and connected.
-
-        Returns:
-            bool: True if video capture object exists and is opened.
-        """
+        """Check if camera stream is currently open and connected."""
         return self.cap is not None and self.cap.isOpened()
 
     def capture_frame(self) -> np.ndarray:
-        """Capture a single frame from the camera stream.
-
-        Returns:
-            np.ndarray: OpenCV BGR image frame array.
-
-        Raises:
-            CameraConnectionError: If camera is not connected.
-            FrameCaptureError: If frame acquisition fails or returns empty array.
-        """
+        """Capture a single frame from the camera stream."""
         if not self.is_connected():
             self.connect()
 
         if self.cap is None:
             raise CameraConnectionError("Camera VideoCapture instance is uninitialized.")
-
-        logger.info("Capturing frame from camera source: %s", self.source)
 
         try:
             success, frame = self.cap.read()
@@ -104,7 +83,6 @@ class CameraService:
                 logger.error(error_msg)
                 raise FrameCaptureError(error_msg)
 
-            logger.info("Frame captured successfully. Frame resolution: %dx%d", frame.shape[1], frame.shape[0])
             return frame
 
         except Exception as exc:
@@ -124,14 +102,10 @@ class CameraService:
                 logger.warning("Error releasing camera capture: %s", str(exc))
             finally:
                 self.cap = None
-        else:
-            logger.debug("Camera already disconnected or capture object is None.")
 
     def __enter__(self) -> "CameraService":
-        """Context manager entry point."""
         self.connect()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit point releasing resources."""
         self.disconnect()

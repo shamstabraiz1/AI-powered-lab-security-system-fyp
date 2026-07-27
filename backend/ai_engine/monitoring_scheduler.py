@@ -255,11 +255,12 @@ class MonitoringScheduler:
 
 
                 # Initialize or reuse CameraService connection
-                source = camera.location if camera.location and ("://" in camera.location or camera.location.isdigit()) else 0
+                source = camera.rtsp_url or camera.ip_address
                 if cam_service is None or cam_service.source != source:
                     if cam_service is not None:
                         cam_service.disconnect()
                     cam_service = CameraService(source=source)
+
 
                 if not cam_service.is_connected():
                     try:

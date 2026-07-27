@@ -42,12 +42,12 @@ class CameraViewSet(viewsets.ModelViewSet):
             from ai_engine.detector import get_yolo_model
             model = get_yolo_model()
 
-            source = stream_source if (stream_source and ("://" in stream_source or stream_source.isdigit())) else 0
-            cap = cv2.VideoCapture(source)
+            cap = cv2.VideoCapture(stream_source)
 
             if not cap.isOpened():
-                logger.warning("[LIVE STREAM] Failed to open source %s for Camera ID %d. Retrying webcam index 0...", stream_source, camera.id)
-                cap = cv2.VideoCapture(0)
+                logger.error("[LIVE STREAM] Failed to open camera stream at URL %s for Camera ID %d (%s). Stream aborted.", stream_source, camera.id, camera.name)
+                return
+
 
             frame_count = 0
             try:

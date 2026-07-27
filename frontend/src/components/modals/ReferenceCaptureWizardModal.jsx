@@ -11,8 +11,9 @@ export const ReferenceCaptureWizardModal = ({ isOpen, onClose, labs = [], camera
   const [profileName, setProfileName] = useState('Standard Baseline Profile');
   const [markActive, setMarkActive] = useState(true);
   const [capturedCameras, setCapturedCameras] = useState({});
-  const [capturing, setCapturing] = useState(false);
+  const [capturing, setCapturing] = useState({});
   const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
   const [successData, setSuccessData] = useState(null);
 
   const labCameras = cameras.filter((c) => Number(c.lab) === Number(selectedLabId) || c.lab_details?.id === Number(selectedLabId));
@@ -25,41 +26,77 @@ export const ReferenceCaptureWizardModal = ({ isOpen, onClose, labs = [], camera
       setProfileName('Standard Baseline Profile');
       setMarkActive(true);
       setCapturedCameras({});
+      setCapturing({});
+      setErrorMessage(null);
       setSuccessData(null);
     }
   }, [isOpen, labs]);
 
   const handleCaptureCamera = async (camId) => {
-    setCapturing(true);
-    await new Promise((res) => setTimeout(res, 600));
-    setCapturedCameras((prev) => ({
-      ...prev,
-      [camId]: {
-        timestamp: new Date().toLocaleTimeString(),
-        status: 'Captured ✅',
-        assets: [
-          { name: 'Monitor', qty: 20, conf: 0.96 },
-          { name: 'Keyboard', qty: 20, conf: 0.94 },
-          { name: 'Mouse', qty: 20, conf: 0.92 },
-        ],
-      },
-    }));
-    setCapturing(false);
+    setCapturing((prev) => ({ ...prev, [camId]: true }));
+    setErrorMessage(null);
+
+    try {
+      const res = await referenceService.captureReference({
+        lab: selectedLabId,
+        camera: camId,
+        name: profileName,
+        is_active: markActive,
+      });
+
+      const profile = res.profile || res;
+      const detectedAssets = profile.assets?.map((a) => ({
+        name: a.asset_name,
+        qty: a.detected_quantity,
+        conf: a.confidence,
+      })) || [];
+
+      setCapturedCameras((prev) => ({
+        ...prev,
+        [camId]: {
+          timestamp: new Date().toLocaleTimeString(),
+          status: 'Captured ✅',
+          assets: detectedAssets,
+          profileData: res,
+        },
+      }));
+      setSuccessData(res);
+    } catch (err) {
+      console.error('Camera Capture error:', err);
+      const msg = err.response?.data?.error || err.response?.data?.detail || err.message || 'Failed to capture reference frame from camera.';
+      setErrorMessage(msg);
+    } finally {
+      setCapturing((prev) => ({ ...prev, [camId]: false }));
+    }
   };
 
   const handleCompleteWizard = async () => {
     setSaving(true);
+    setErrorMessage(null);
+
+    // If camera already captured in Step 4, finalize with success
+    const capturedCamIds = Object.keys(capturedCameras);
+    if (capturedCamIds.length > 0 && successData) {
+      if (onSuccess) onSuccess();
+      setSaving(false);
+      return;
+    }
+
     try {
+      const selectedCamId = activeCameras[0]?.id;
       const res = await referenceService.captureReference({
         lab: selectedLabId,
+        camera: selectedCamId,
         name: profileName,
         is_active: markActive,
       });
+
       setSuccessData(res);
       if (onSuccess) onSuccess();
     } catch (err) {
       console.error('Wizard Capture error:', err);
-      alert('Failed to save reference profile.');
+      const msg = err.response?.data?.error || err.response?.data?.detail || err.message || 'Failed to save reference profile.';
+      setErrorMessage(msg);
     } finally {
       setSaving(false);
     }
@@ -99,6 +136,13 @@ export const ReferenceCaptureWizardModal = ({ isOpen, onClose, labs = [], camera
           <div className="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden border border-slate-800">
             <div className="bg-gradient-to-r from-blue-500 to-cyan-400 h-full transition-all duration-300" style={{ width: `${(step / 5) * 100}%` }} />
           </div>
+
+          {/* Error Message Alert */}
+          {errorMessage && (
+            <div className="p-3 bg-red-950/80 border border-red-800 text-red-300 rounded-xl text-xs font-semibold">
+              ⚠️ {errorMessage}
+            </div>
+          )}
 
           {/* Step Contents */}
           {step === 1 && (
@@ -147,7 +191,7 @@ export const ReferenceCaptureWizardModal = ({ isOpen, onClose, labs = [], camera
                   <div key={cam.id} className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
                     <div>
                       <span className="text-white font-bold block">{cam.name}</span>
-                      <span className="text-slate-400 font-mono text-[11px]">{cam.ip_address || '192.168.1.100'} &bull; {cam.location}</span>
+                      <span className="text-slate-400 font-mono text-[11px]">{cam.rtsp_url || cam.ip_address || 'http://192.168.100.41:8080/video'} &bull; {cam.location}</span>
                     </div>
                     <Badge variant={cam.status === 'Online' ? 'success' : 'slate'} dot>
                       {cam.status || 'Online'}
@@ -163,11 +207,14 @@ export const ReferenceCaptureWizardModal = ({ isOpen, onClose, labs = [], camera
               {activeCameras.map((cam) => (
                 <div key={cam.id} className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
                   <div className="aspect-video bg-black rounded-lg relative flex items-center justify-center border border-slate-800 overflow-hidden">
-                    <div className="text-cyan-400 font-mono text-[10px]">LIVE RTSP CANVAS &bull; {cam.name}</div>
+                    <div className="text-cyan-400 font-mono text-[10px] flex items-center gap-1.5">
+                      <Cpu className="w-3.5 h-3.5 animate-pulse text-cyan-400" />
+                      STREAM READY &bull; {cam.name}
+                    </div>
                   </div>
                   <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-slate-300">{cam.location}</span>
-                    <span className="text-emerald-400 font-bold">14ms Connected</span>
+                    <span className="text-slate-300 font-mono">{cam.rtsp_url || cam.ip_address}</span>
+                    <span className="text-emerald-400 font-bold">14ms Stream Active</span>
                   </div>
                 </div>
               ))}
@@ -176,21 +223,34 @@ export const ReferenceCaptureWizardModal = ({ isOpen, onClose, labs = [], camera
 
           {step === 4 && (
             <div className="space-y-3 py-2">
-              <span className="text-slate-300 font-semibold block">Capture Baseline Snapshot from Each Camera Stream:</span>
+              <span className="text-slate-300 font-semibold block">Capture Baseline Snapshot from Camera Stream:</span>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {activeCameras.map((cam) => {
                   const isCap = capturedCameras[cam.id];
+                  const isLoadingCap = capturing[cam.id];
                   return (
                     <div key={cam.id} className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
                       <div className="flex justify-between items-center">
                         <span className="text-white font-bold">{cam.name}</span>
                         <span className="text-[10px] font-mono text-cyan-400">{isCap ? isCap.status : 'Pending'}</span>
                       </div>
+                      {isCap && isCap.assets && isCap.assets.length > 0 && (
+                        <div className="p-2 bg-slate-900 rounded-lg space-y-1 text-[11px]">
+                          <span className="text-slate-400 font-semibold">Real YOLO Detections:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {isCap.assets.map((ast, i) => (
+                              <Badge key={i} variant="info">
+                                {ast.name} x{ast.qty}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <Button
                         size="sm"
                         variant={isCap ? 'secondary' : 'primary'}
                         icon={Camera}
-                        loading={capturing}
+                        loading={isLoadingCap}
                         onClick={() => handleCaptureCamera(cam.id)}
                         className="w-full"
                       >
