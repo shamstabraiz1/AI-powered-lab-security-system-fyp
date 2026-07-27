@@ -1,6 +1,7 @@
 """ViewSets for Cameras app."""
 
 import time
+import logging
 import cv2
 from django.http import StreamingHttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
@@ -10,6 +11,8 @@ from rest_framework.response import Response
 from cameras.models import Camera
 from cameras.serializers import CameraSerializer
 from core.permissions import IsAdminOrSecurityOfficer
+
+logger = logging.getLogger(__name__)
 
 
 class CameraViewSet(viewsets.ModelViewSet):
@@ -28,28 +31,41 @@ class CameraViewSet(viewsets.ModelViewSet):
         """Continuous MJPEG Video Stream with live YOLO object detection annotations."""
         camera = self.get_object()
         stream_source = camera.rtsp_url or camera.ip_address
+        client_ip = request.META.get("REMOTE_ADDR", "unknown")
+
+        logger.info(
+            "[LIVE STREAM] Client connected from IP %s to stream for Camera ID %d (%s) at source: %s",
+            client_ip, camera.id, camera.name, stream_source
+        )
 
         def generate_mjpeg():
-            # Import YOLO model lazily
-            from ai_engine.detector import model
+            from ai_engine.detector import get_yolo_model
+            model = get_yolo_model()
 
             source = stream_source if (stream_source and ("://" in stream_source or stream_source.isdigit())) else 0
             cap = cv2.VideoCapture(source)
 
             if not cap.isOpened():
+                logger.warning("[LIVE STREAM] Failed to open source %s for Camera ID %d. Retrying webcam index 0...", stream_source, camera.id)
                 cap = cv2.VideoCapture(0)
 
+            frame_count = 0
             try:
                 while cap.isOpened():
                     success, frame = cap.read()
                     if not success or frame is None or frame.size == 0:
+                        logger.warning("[LIVE STREAM] Empty frame received for Camera ID %d. Stream ending.", camera.id)
                         break
 
                     # Run YOLO object detection on the live frame
                     try:
-                        results = model(frame, verbose=False)
-                        annotated_frame = results[0].plot()
-                    except Exception:
+                        if model is not None:
+                            results = model(frame, verbose=False)
+                            annotated_frame = results[0].plot()
+                        else:
+                            annotated_frame = frame
+                    except Exception as yolo_err:
+                        logger.error("[LIVE STREAM] YOLO inference error on Camera ID %d: %s", camera.id, str(yolo_err))
                         annotated_frame = frame
 
                     # Encode frame as JPEG
@@ -57,11 +73,18 @@ class CameraViewSet(viewsets.ModelViewSet):
                     if not ret:
                         continue
 
+                    frame_count += 1
+                    if frame_count % 30 == 0:
+                        logger.info("[LIVE STREAM] Transmitted %d annotated frames for Camera ID %d (%s)", frame_count, camera.id, camera.name)
+
                     frame_bytes = jpeg.tobytes()
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            except GeneratorExit:
+                logger.info("[LIVE STREAM] Client from IP %s disconnected from Camera ID %d stream.", client_ip, camera.id)
             finally:
                 cap.release()
+                logger.info("[LIVE STREAM] VideoCapture released for Camera ID %d. Total frames transmitted: %d", camera.id, frame_count)
 
         return StreamingHttpResponse(
             generate_mjpeg(),

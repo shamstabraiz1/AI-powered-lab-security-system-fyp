@@ -31,31 +31,56 @@ import {
 // Stream component displaying backend MJPEG continuous video stream with YOLO detections
 const RealCameraStreamCard = ({ camera, isMonitoring }) => {
   const [streamError, setStreamError] = useState(false);
+  const [streamLoading, setStreamLoading] = useState(true);
   const backendStreamUrl = `/api/cameras/${camera.id}/stream/`;
   const streamUrl = camera.rtsp_url || camera.ip_address;
 
+  React.useEffect(() => {
+    console.log(`[LIVE MONITORING STREAM] Connecting to annotated stream URL: ${backendStreamUrl} for Camera "${camera.name}" (ID: ${camera.id})`);
+  }, [backendStreamUrl, camera.id, camera.name]);
+
+  const handleStreamLoad = () => {
+    setStreamLoading(false);
+    console.log(`[LIVE MONITORING STREAM] Stream connected and receiving frames successfully for Camera ID: ${camera.id}`);
+  };
+
+  const handleStreamError = (err) => {
+    setStreamLoading(false);
+    setStreamError(true);
+    console.error(`[LIVE MONITORING STREAM] Connection error for Camera ID: ${camera.id} (${camera.name}) at URL: ${backendStreamUrl}`, err);
+  };
+
   return (
     <div className="aspect-video bg-black rounded-xl overflow-hidden relative border border-slate-800 shadow-xl group">
+      {streamLoading && !streamError && (
+        <div className="absolute inset-0 z-10 bg-slate-950/90 flex flex-col items-center justify-center space-y-2 text-center p-4">
+          <RefreshCw className="w-6 h-6 text-cyan-400 animate-spin" />
+          <span className="text-xs text-slate-300 font-semibold font-heading">Connecting to Annotated Stream...</span>
+          <span className="text-[10px] text-slate-500 font-mono truncate max-w-xs">{backendStreamUrl}</span>
+        </div>
+      )}
+
       {!streamError ? (
         <img
           src={backendStreamUrl}
           alt={camera.name}
-          onError={() => setStreamError(true)}
+          onLoad={handleStreamLoad}
+          onError={handleStreamError}
           className="w-full h-full object-cover"
         />
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 p-4 text-center space-y-2">
-          <CameraIcon className="w-8 h-8 text-cyan-400 opacity-70" />
+          <CameraIcon className="w-8 h-8 text-red-400 opacity-70" />
           <span className="text-xs text-slate-300 font-bold">{camera.name}</span>
           <span className="text-[10px] text-slate-500 font-mono truncate max-w-xs">{streamUrl}</span>
-          <span className="text-[10px] text-red-400 font-semibold bg-red-500/10 px-2 py-0.5 rounded">
-            Stream Connection Unavailable
+          <span className="text-[10px] text-red-400 font-bold bg-red-500/15 border border-red-500/30 px-2.5 py-1 rounded-lg">
+            Unable to receive annotated stream from backend
           </span>
         </div>
       )}
 
       {/* Camera Header Overlay */}
-      <div className="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none">
+      <div className="absolute top-2 left-2 right-2 flex justify-between items-center pointer-events-none z-20">
         <div className="bg-slate-950/85 backdrop-blur px-2 py-1 rounded-lg border border-slate-800 text-[10px] text-white font-bold font-heading">
           {camera.name} &bull; <span className="text-slate-400 font-normal">{camera.location || 'Location Not Specified'}</span>
         </div>
@@ -66,6 +91,7 @@ const RealCameraStreamCard = ({ camera, isMonitoring }) => {
     </div>
   );
 };
+
 
 
 export const LiveMonitoringPage = () => {
