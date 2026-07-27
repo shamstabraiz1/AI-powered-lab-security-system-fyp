@@ -20,7 +20,9 @@ export const EvidencePage = () => {
   const { data: evidenceData, isLoading } = useQuery({
     queryKey: ['evidence-list'],
     queryFn: () => evidenceService.getEvidenceList(),
+    refetchInterval: 3000,
   });
+
 
   const evidenceList = evidenceData?.results || (Array.isArray(evidenceData) ? evidenceData : []);
 

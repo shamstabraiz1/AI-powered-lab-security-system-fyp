@@ -24,7 +24,8 @@ export const NotificationsPage = () => {
   const { data: notificationsData, isLoading } = useQuery({
     queryKey: ['notifications-list'],
     queryFn: () => notificationService.getNotifications(),
-    refetchInterval: 5000,
+    refetchInterval: 3000,
+
   });
 
   const notificationsList = notificationsData?.results || (Array.isArray(notificationsData) ? notificationsData : []);

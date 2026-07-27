@@ -33,7 +33,8 @@ export const IncidentsPage = () => {
   const { data: incidentsData, isLoading, isRefetching } = useQuery({
     queryKey: ['incidents-list'],
     queryFn: () => incidentService.getIncidents(),
-    refetchInterval: 5000,
+    refetchInterval: 3000,
+
   });
 
   const incidentsList = incidentsData?.results || (Array.isArray(incidentsData) ? incidentsData : []);

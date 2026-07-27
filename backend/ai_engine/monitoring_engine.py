@@ -90,12 +90,11 @@ class MonitoringEngine:
             )
 
         if not profile:
-            error_msg = f"[PIPELINE FAILURE - STAGE 3] ERROR: No active Reference Profile found for camera ID {camera.id} ({camera.name}) or Lab '{camera.lab.name if camera.lab else 'Unassigned'}'."
+            error_msg = f"[Stage 4 Failure] ERROR: No active Reference Profile found for camera ID {camera.id} ({camera.name}) or Lab '{camera.lab.name if camera.lab else 'Unassigned'}'."
             log_stage(error_msg)
             raise ReferenceDetectorError(error_msg)
 
         return profile
-
 
     def compare_assets(
         self,
@@ -145,7 +144,6 @@ class MonitoringEngine:
     ) -> Tuple[bool, List[Dict[str, Any]]]:
         """Update consecutive-missing verification frame counters for camera assets."""
         missing_asset_ids = {item["asset_id"]: item for item in missing_assets}
-        reference_asset_ids = [ref.asset.id for ref in reference_profile.assets.all()]
 
         verified_missing: List[Dict[str, Any]] = []
         verification_passed = False
@@ -158,14 +156,14 @@ class MonitoringEngine:
             if asset_id in missing_asset_ids:
                 current_count = self._verification_counter.get(key, 0) + 1
                 self._verification_counter[key] = current_count
-                log_stage(f"Verification {current_count}/{self.verification_frames} for missing asset '{asset_name}'")
+                log_stage(f"[Stage 6] Verification {current_count}/{self.verification_frames} for missing asset '{asset_name}'")
 
                 if current_count >= self.verification_frames:
                     verification_passed = True
                     verified_missing.append(missing_asset_ids[asset_id])
             else:
                 if key in self._verification_counter and self._verification_counter[key] > 0:
-                    log_stage(f"Asset '{asset_name}' reappeared. Resetting verification counter.")
+                    log_stage(f"[Stage 6] ERROR: Verification reset because object '{asset_name}' reappeared.")
                 self._verification_counter[key] = 0
 
         return verification_passed, verified_missing
@@ -177,7 +175,7 @@ class MonitoringEngine:
         frame: np.ndarray,
         camera_service: Optional[CameraService] = None
     ) -> bool:
-        """Atomically create Incident and Evidence database records for verified missing assets."""
+        """Atomically create Incident, Evidence, and Notification database records for verified missing assets."""
         if not verified_missing_items:
             return False
 
@@ -196,7 +194,7 @@ class MonitoringEngine:
                     ).first()
 
                     if existing_incident:
-                        log_stage(f"Open incident #{existing_incident.id} already active for asset '{asset_obj.name}'. Skipping duplicate.")
+                        log_stage(f"[Stage 7] Open incident #{existing_incident.id} already active for asset '{asset_obj.name}'. Skipping duplicate.")
                         continue
 
                     # Create new Incident record
@@ -214,11 +212,11 @@ class MonitoringEngine:
                         description=description,
                         status="Open"
                     )
-                    log_stage(f"Incident created: Incident #{incident.id} for missing asset '{asset_obj.name}'")
 
-                    # Save evidence frame image to media storage
+                    log_stage(f"[Stage 7] Incident Created: Incident ID #{incident.id} for missing asset '{asset_obj.name}'")
+
+                    # Save evidence frame image to media storage under media/evidence/
                     evidence_image_path = save_evidence_image(frame=frame, camera_id=camera.id)
-                    log_stage(f"Evidence saved: {evidence_image_path}")
 
                     # Create Evidence record linked to Incident
                     evidence = Evidence.objects.create(
@@ -227,6 +225,7 @@ class MonitoringEngine:
                         confidence=item["confidence"],
                         captured_at=timezone.now()
                     )
+                    log_stage(f"[Stage 8] Evidence Saved: Evidence ID #{evidence.id} ({evidence_image_path})")
 
                     # Automatically record pre-event + post-event video evidence asynchronously
                     self.video_evidence_service.record_evidence_video(
@@ -242,7 +241,7 @@ class MonitoringEngine:
                     try:
                         from notifications.services import notify_asset_missing
                         notify_asset_missing(incident)
-                        log_stage(f"Notification created for Incident #{incident.id}")
+                        log_stage(f"[Stage 9] Notification Created: Asset missing in {camera.lab.name} (Camera: {camera.name})")
                     except Exception as notify_err:
                         log_stage(f"Warning: Failed to trigger notification: {str(notify_err)}")
 
@@ -251,7 +250,7 @@ class MonitoringEngine:
             return incident_created
 
         except Exception as exc:
-            error_msg = f"[PIPELINE FAILURE - STAGE 6] Failed to persist incident/evidence records for camera {camera.id}: {str(exc)}"
+            error_msg = f"[Stage 7 Failure] ERROR: Incident transaction rolled back for camera {camera.id}: {str(exc)}"
             log_stage(error_msg)
             raise DatabaseOperationError(error_msg) from exc
 
@@ -263,10 +262,12 @@ class MonitoringEngine:
     ) -> Dict[str, Any]:
         """Execute a single live monitoring cycle for the specified camera with full audit stage logging."""
         start_time = time.time()
-        log_stage(f"\n--- [AI MONITORING PIPELINE START] Camera #{camera.id} ({camera.name}) ---")
+        log_stage(f"\n==================================================")
+        log_stage(f"LIVE MONITORING CYCLE: Camera #{camera.id} ({camera.name})")
+        log_stage(f"==================================================")
 
-        # Stage 1: Camera Connected & Frame Received
-        log_stage(f"Camera connected: #{camera.id} ({camera.name})")
+        # Stage 1: Camera Connected & Frame Captured
+        log_stage(f"[Stage 1] Camera Connected: #{camera.id} ({camera.name})")
 
         acquired_frame = frame
         if acquired_frame is None:
@@ -278,66 +279,68 @@ class MonitoringEngine:
                     with CameraService(source=source) as temp_service:
                         acquired_frame = temp_service.capture_frame()
             except Exception as frame_err:
-                err_msg = f"[PIPELINE FAILURE - STAGE 1] Camera connection or frame capture failed for Camera ID {camera.id}: {str(frame_err)}"
+                err_msg = f"[Stage 1 Failure] ERROR: Camera connection or frame capture failed for Camera ID {camera.id}: {str(frame_err)}"
                 log_stage(err_msg)
                 raise ReferenceDetectorError(err_msg) from frame_err
 
         if acquired_frame is None or acquired_frame.size == 0:
-            err_msg = f"[PIPELINE FAILURE - STAGE 1] Invalid empty frame received for Camera ID {camera.id}."
+            err_msg = f"[Stage 2 Failure] ERROR: Invalid empty frame captured for Camera ID {camera.id}."
             log_stage(err_msg)
             raise FrameCaptureError(err_msg)
 
-        log_stage(f"Frame received (Resolution: {acquired_frame.shape[1]}x{acquired_frame.shape[0]})")
+        log_stage(f"[Stage 2] Frame Captured (Resolution: {acquired_frame.shape[1]}x{acquired_frame.shape[0]})")
 
         # Push frame into VideoEvidenceService circular buffer
         self.video_evidence_service.add_frame(camera.id, acquired_frame)
 
-        # Stage 2: YOLO Detection
+        # Stage 3: YOLO Detection Complete
         try:
             raw_detections = self.detector_engine.detect(acquired_frame)
             filtered_detections = self.detector_engine.filter_supported_assets(raw_detections)
             current_counts = self.detector_engine.count_assets(filtered_detections)
             current_confidences = self.detector_engine.calculate_average_confidence(filtered_detections)
 
-            log_stage("YOLO detected:")
+            log_stage("[Stage 3] YOLO Detection Complete:")
             if filtered_detections:
                 for det in filtered_detections:
-                    log_stage(f"  - {det['class_name']} ({det['confidence']:.2f})")
+                    log_stage(f"  {det['class_name']} ({det['confidence']:.2f})")
             else:
-                log_stage("  - (No supported assets detected in frame)")
+                log_stage("  (No supported assets detected in frame)")
 
         except Exception as yolo_err:
-            err_msg = f"[PIPELINE FAILURE - STAGE 2] YOLO Object Detection failed for Camera ID {camera.id}: {str(yolo_err)}"
+            err_msg = f"[Stage 3 Failure] ERROR: YOLO Object Detection failed for Camera ID {camera.id}: {str(yolo_err)}"
             log_stage(err_msg)
             raise ReferenceDetectorError(err_msg) from yolo_err
 
-        # Stage 3: Load Active Reference Profile & Expected Assets
+        # Stage 4: Load Active Reference Profile & Expected Assets
         try:
             reference_profile = self.get_active_reference_profile(camera)
-            log_stage(f"Reference profile loaded: '{reference_profile.name}' (Profile #{reference_profile.id})")
-
-            if reference_profile.reference_image:
-                log_stage(f"Reference image verified: {reference_profile.reference_image.name}")
-            else:
-                log_stage("Reference image verified: Baseline Active")
+            log_stage(f"[Stage 4] Reference Loaded: Profile ID #{reference_profile.id} ('{reference_profile.name}')")
 
             ref_assets = list(reference_profile.assets.all())
-            log_stage("Expected assets:")
+            if not ref_assets:
+                err_msg = f"[Stage 4 Failure] ERROR: Baseline asset list is empty for Reference Profile #{reference_profile.id}."
+                log_stage(err_msg)
+                raise ReferenceDetectorError(err_msg)
+
+            log_stage("Expected Assets:")
             for ref_ast in ref_assets:
-                log_stage(f"  - {ref_ast.asset.name} ({ref_ast.detected_quantity})")
+                log_stage(f"  {ref_ast.asset.name} = {ref_ast.detected_quantity}")
 
         except Exception as ref_err:
-            err_msg = f"[PIPELINE FAILURE - STAGE 3] Reference Profile error for Camera ID {camera.id}: {str(ref_err)}"
+            if isinstance(ref_err, ReferenceDetectorError):
+                raise
+            err_msg = f"[Stage 4 Failure] ERROR: Failed loading Reference Profile for Camera ID {camera.id}: {str(ref_err)}"
             log_stage(err_msg)
             raise ReferenceDetectorError(err_msg) from ref_err
 
-        # Stage 4: Asset Comparison & Missing Detection
-        log_stage("Current assets:")
+        # Stage 5: Comparison & Missing Detection
+        log_stage("Current Assets:")
         if current_counts:
             for cls_name, qty in current_counts.items():
-                log_stage(f"  - {cls_name} ({qty})")
+                log_stage(f"  {cls_name} = {qty}")
         else:
-            log_stage("  - None")
+            log_stage("  None")
 
         missing_assets = self.compare_assets(
             reference_profile=reference_profile,
@@ -346,22 +349,23 @@ class MonitoringEngine:
         )
 
         if missing_assets:
+            log_stage("[Stage 5] Comparison:")
             for m in missing_assets:
-                log_stage(f"Missing asset:\n  - {m['asset_name']} (Expected: {m['expected']}, Detected: {m['detected']}, Missing: {m['missing']})")
+                log_stage(f"  Missing: {m['asset_name']} (Expected: {m['expected']}, Detected: {m['detected']}, Missing: {m['missing']})")
         else:
-            log_stage("Missing asset:\n  - None (All expected assets present)")
+            log_stage("[Stage 5] Comparison: All expected assets present.")
 
-        # Stage 5: Verification Window Processing
+        # Stage 6: Verification Window Processing
         verification_passed, verified_missing = self.update_verification_window(
             camera_id=camera.id,
             reference_profile=reference_profile,
             missing_assets=missing_assets
         )
 
-        # Stage 6: Incident & Evidence Creation on Verification Success
+        # Stage 7, 8, 9: Incident, Evidence & Notification Creation on Verification Success
         incident_created = False
         if verification_passed and verified_missing:
-            log_stage("[VERIFICATION CONFIRMED] Missing asset confirmed across consecutive checks. Generating Incident & Evidence...")
+            log_stage("[Stage 6] Verification 3/3 Confirmed! Creating Incident, Evidence, and Notification...")
             incident_created = self.trigger_incident_and_evidence(
                 camera=camera,
                 verified_missing_items=verified_missing,
@@ -370,7 +374,8 @@ class MonitoringEngine:
             )
 
         processing_time = round(time.time() - start_time, 2)
-        log_stage(f"--- [AI MONITORING PIPELINE END] Processing completed in {processing_time}s ---\n")
+        log_stage(f"[Stage 10] Frontend Updated Successfully (Cycle Time: {processing_time}s)")
+        log_stage(f"==================================================\n")
 
         formatted_missing_assets = [
             {
