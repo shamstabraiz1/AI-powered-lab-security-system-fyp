@@ -3,9 +3,11 @@
 import logging
 import time
 import os
+import traceback
 import cv2
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, viewsets, status
 from rest_framework.decorators import action
@@ -13,6 +15,7 @@ from rest_framework.response import Response
 
 from ai_engine.camera_service import CameraService
 from ai_engine.detector_engine import DetectorEngine
+from ai_engine.utils import get_or_create_lab_asset
 from assets.models import Asset
 from cameras.models import Camera
 from core.permissions import IsAdminOrSecurityOfficer
@@ -53,118 +56,190 @@ class ReferenceProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="capture-reference")
     def capture_reference(self, request):
-        """Capture reference frame from live IP camera, run YOLO detection, and create baseline profile."""
+        """Capture reference frame from live IP camera, run YOLO detection, and create baseline profile with stage-level diagnostic handling."""
         lab_id = request.data.get("lab")
         camera_id = request.data.get("camera")
         profile_name = request.data.get("name", "Standard Laboratory Baseline")
         mark_active = request.data.get("is_active", True)
 
-        # 1. Fetch camera instance
-        camera = None
-        if camera_id:
-            camera = Camera.objects.filter(id=camera_id).first()
-        if not camera and lab_id:
-            camera = Camera.objects.filter(lab_id=lab_id, is_active=True).first()
-
-        if not camera:
-            # Fallback to first available camera if unassigned
-            camera = Camera.objects.filter(is_active=True).first()
-
-        if not camera:
-            return Response(
-                {"error": "No camera available to capture reference frame. Please configure a camera first."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        lab = camera.lab
-
-        # 2. Connect to camera & capture 1 frame from IP camera stream URL
-        stream_source = camera.rtsp_url or camera.ip_address
-
-        frame = None
+        # 1. Camera lookup
+        current_stage = "Camera Lookup"
         try:
-            with CameraService(source=stream_source) as cam_service:
-                frame = cam_service.capture_frame()
-        except Exception as cam_err:
-            logger.warning("CameraService error for stream URL %s: %s. Trying OpenCV direct capture...", stream_source, str(cam_err))
-            cap = cv2.VideoCapture(stream_source)
-            if cap.isOpened():
-                ret, frame = cap.read()
-                cap.release()
+            logger.info("Stage 1: Camera Lookup - Fetching camera for camera_id=%s, lab_id=%s...", camera_id, lab_id)
+            camera = None
+            if camera_id:
+                camera = Camera.objects.filter(id=camera_id).first()
+            if not camera and lab_id:
+                camera = Camera.objects.filter(lab_id=lab_id, is_active=True).first()
 
+            if not camera:
+                camera = Camera.objects.filter(is_active=True).first()
 
-        if frame is None or frame.size == 0:
+            if not camera:
+                logger.error("Camera Lookup stage failed: No active or configured camera found.")
+                return Response(
+                    {
+                        "stage": "Camera Lookup",
+                        "error": "DoesNotExist: No camera available to capture reference frame. Please configure a camera first."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            lab = camera.lab
+        except Exception as exc:
+            logger.exception(traceback.format_exc())
+            err_details = f"{type(exc).__name__}: {str(exc)}" if settings.DEBUG else "Camera lookup failed."
             return Response(
-                {"error": f"Failed to capture frame from camera '{camera.name}' at source '{stream_source}'."},
-                status=status.HTTP_400_BAD_REQUEST
+                {"stage": "Camera Lookup", "error": err_details},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # 3. Save original frame as Reference Image
-        ret, jpeg_buf = cv2.imencode('.jpg', frame)
-        if not ret:
-            return Response({"error": "Failed to encode reference frame as JPEG."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # 2 & 3. Camera connection and Frame capture
+        current_stage = "Camera Connection"
+        try:
+            stream_source = camera.rtsp_url or camera.ip_address or camera.location or 0
+            logger.info("Stage 2: Camera Connection - Connecting to camera '%s' (ID: %s) at source '%s'...", camera.name, camera.id, stream_source)
 
-        filename = f"ref_cam_{camera.id}_{int(time.time())}.jpg"
-        content_file = ContentFile(jpeg_buf.tobytes(), name=filename)
+            current_stage = "Frame Capture"
+            logger.info("Stage 3: Frame Capture - Capturing frame from camera stream source '%s'...", stream_source)
+            frame = None
+            try:
+                with CameraService(source=stream_source) as cam_service:
+                    frame = cam_service.capture_frame()
+            except Exception as cam_err:
+                logger.warning("CameraService error for stream URL %s: %s. Trying OpenCV direct capture...", stream_source, str(cam_err))
+                cap = cv2.VideoCapture(stream_source)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    cap.release()
 
-        # 4. Run YOLO object detection on captured frame
-        detector = DetectorEngine()
-        raw_dets = detector.detect(frame)
-        filtered_dets = detector.filter_supported_assets(raw_dets)
-        counts = detector.count_assets(filtered_dets)
-        confidences = detector.calculate_average_confidence(filtered_dets)
-
-        # 5. Deactivate existing active profile if requested
-        if mark_active:
-            ReferenceProfile.objects.filter(lab=lab, is_active=True).update(is_active=False)
-            if camera:
-                ReferenceProfile.objects.filter(camera=camera, is_active=True).update(is_active=False)
-
-        # 6. Create ReferenceProfile with non-NULL camera and lab
-        profile = ReferenceProfile.objects.create(
-            name=profile_name,
-            lab=lab,
-            camera=camera,
-            reference_image=content_file,
-            created_by=request.user.username if request.user.is_authenticated else "Dr. Tabraiz Shams",
-            is_active=mark_active
-        )
-
-        # 7. Create ReferenceAsset records dynamically matching REAL YOLO counts
-        if counts:
-            for cls_name, qty in counts.items():
-                avg_conf = confidences.get(cls_name, 0.95)
-                asset_obj, _ = Asset.objects.get_or_create(
-                    name=cls_name.capitalize(),
-                    defaults={"category": "computer", "lab": lab}
+            if frame is None or getattr(frame, 'size', 0) == 0:
+                logger.error("Frame Capture stage failed: Unable to read frame from stream.")
+                return Response(
+                    {
+                        "stage": "Frame Capture",
+                        "error": f"FrameCaptureError: Unable to read frame from stream '{stream_source}' for camera '{camera.name}'."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
                 )
-                ReferenceAsset.objects.create(
-                    reference=profile,
-                    asset=asset_obj,
-                    asset_name=cls_name.capitalize(),
-                    category=asset_obj.category or "computer",
-                    detected_quantity=qty,
-                    confidence=avg_conf
+        except Exception as exc:
+            logger.exception(traceback.format_exc())
+            err_details = f"{type(exc).__name__}: {str(exc)}" if settings.DEBUG else f"{current_stage} failed."
+            return Response(
+                {"stage": current_stage, "error": err_details},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 4 & 5. YOLO model loading and YOLO inference
+        current_stage = "YOLO Model Loading"
+        try:
+            logger.info("Stage 4: YOLO Model Loading - Initializing DetectorEngine and loading model weights...")
+            detector = DetectorEngine()
+
+            current_stage = "YOLO Inference"
+            logger.info("Stage 5: YOLO Inference - Running detection on captured frame...")
+            raw_dets = detector.detect(frame)
+            filtered_dets = detector.filter_supported_assets(raw_dets)
+            counts = detector.count_assets(filtered_dets)
+            confidences = detector.calculate_average_confidence(filtered_dets)
+        except Exception as exc:
+            logger.exception(traceback.format_exc())
+            err_details = f"{type(exc).__name__}: {str(exc)}" if settings.DEBUG else f"{current_stage} failed."
+            return Response(
+                {"stage": current_stage, "error": err_details},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 6 & 7. Image encoding and Saving reference image
+        current_stage = "Image Encoding"
+        try:
+            logger.info("Stage 6: Image Encoding - Encoding frame as JPEG image...")
+            ret, jpeg_buf = cv2.imencode('.jpg', frame)
+            if not ret:
+                logger.error("Image Encoding stage failed: cv2.imencode returned False.")
+                return Response(
+                    {"stage": "Image Encoding", "error": "ValueError: Failed to encode reference frame as JPEG."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-        else:
-            # Default baseline assets if no assets detected in initial frame
-            for default_name in ["Monitor", "Keyboard", "Mouse"]:
-                asset_obj, _ = Asset.objects.get_or_create(
-                    name=default_name,
-                    defaults={"category": "computer", "lab": lab}
+
+            current_stage = "Saving Reference Image"
+            logger.info("Stage 7: Saving Reference Image - Preparing ContentFile for reference image...")
+            filename = f"ref_cam_{camera.id}_{int(time.time())}.jpg"
+            content_file = ContentFile(jpeg_buf.tobytes(), name=filename)
+        except Exception as exc:
+            logger.exception(traceback.format_exc())
+            err_details = f"{type(exc).__name__}: {str(exc)}" if settings.DEBUG else f"{current_stage} failed."
+            return Response(
+                {"stage": current_stage, "error": err_details},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 8, 9 & 10. Creating ReferenceProfile, Creating ReferenceAsset records, and Database transaction commit
+        current_stage = "Creating ReferenceProfile"
+        try:
+            logger.info("Stage 10: Database Transaction Commit - Beginning atomic database transaction...")
+            with transaction.atomic():
+                if mark_active:
+                    if lab:
+                        ReferenceProfile.objects.filter(lab=lab, is_active=True).update(is_active=False)
+                    if camera:
+                        ReferenceProfile.objects.filter(camera=camera, is_active=True).update(is_active=False)
+
+                logger.info("Stage 8: Creating ReferenceProfile - Saving ReferenceProfile record to database...")
+                profile = ReferenceProfile.objects.create(
+                    name=profile_name,
+                    lab=lab,
+                    camera=camera,
+                    reference_image=content_file,
+                    created_by=request.user.username if (request.user and request.user.is_authenticated) else "Dr. Tabraiz Shams",
+                    is_active=mark_active
                 )
-                ReferenceAsset.objects.create(
-                    reference=profile,
-                    asset=asset_obj,
-                    asset_name=default_name,
-                    category="computer",
-                    detected_quantity=1,
-                    confidence=0.95
-                )
+
+                current_stage = "Creating ReferenceAsset Records"
+                logger.info("Stage 9: Creating ReferenceAsset Records - Persisting ReferenceAsset records for profile #%d...", profile.id)
+                if counts:
+                    for cls_name, qty in counts.items():
+                        avg_conf = confidences.get(cls_name, 0.95)
+                        asset_obj = get_or_create_lab_asset(
+                            lab=lab,
+                            class_name=cls_name,
+                            quantity=qty
+                        )
+                        ReferenceAsset.objects.create(
+                            reference=profile,
+                            asset=asset_obj,
+                            asset_name=cls_name.capitalize(),
+                            category=asset_obj.category or "computer",
+                            detected_quantity=qty,
+                            confidence=avg_conf
+                        )
+                else:
+                    for default_name in ["Monitor", "Keyboard", "Mouse"]:
+                        asset_obj = get_or_create_lab_asset(
+                            lab=lab,
+                            class_name=default_name,
+                            quantity=1
+                        )
+                        ReferenceAsset.objects.create(
+                            reference=profile,
+                            asset=asset_obj,
+                            asset_name=default_name,
+                            category=asset_obj.category or "computer",
+                            detected_quantity=1,
+                            confidence=0.95
+                        )
+
+                logger.info("Stage 10: Database Transaction Commit - Atomic transaction committed successfully for Reference Profile #%d.", profile.id)
+        except Exception as exc:
+            logger.exception(traceback.format_exc())
+            err_details = f"{type(exc).__name__}: {str(exc)}" if settings.DEBUG else f"{current_stage} failed."
+            return Response(
+                {"stage": current_stage, "error": err_details},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         logger.info(
-            "Captured Reference Baseline Profile #%d (%s) for Camera ID %d (%s) with %d asset class(es).",
-            profile.id, profile.name, camera.id, camera.name, len(counts) or 3
+            "Reference Baseline Profile #%d (%s) captured successfully for Camera ID %d (%s).",
+            profile.id, profile.name, camera.id, camera.name
         )
 
         return Response({

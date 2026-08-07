@@ -227,6 +227,69 @@ class MonitoringEngineTestCase(TestCase):
         evidence = Evidence.objects.first()
         self.assertEqual(evidence.incident, incident)
 
+    def test_independent_multi_asset_incidents_and_auto_resolution(self):
+        dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        self.mock_detector_engine.filter_supported_assets.side_effect = lambda dets: dets
+        def mock_count(dets):
+            counts = {}
+            for d in dets:
+                name = d["class_name"]
+                counts[name] = counts.get(name, 0) + 1
+            return counts
+        self.mock_detector_engine.count_assets.side_effect = mock_count
+        self.mock_detector_engine.calculate_average_confidence.return_value = {"mouse": 0.95, "keyboard": 0.92}
+
+        # Step 1: Remove Keyboard (Mouse = 20 present, Keyboard = 19 detected)
+        self.mock_detector_engine.detect.return_value = (
+            [{"raw_class_name": "mouse", "class_name": "mouse", "confidence": 0.95, "bbox": [0,0,10,10]}] * 20 +
+            [{"raw_class_name": "keyboard", "class_name": "keyboard", "confidence": 0.92, "bbox": [0,0,10,10]}] * 19
+        )
+
+        for _ in range(3):
+            self.monitoring_engine.monitor_camera_cycle(camera=self.camera, frame=dummy_frame)
+
+        self.assertEqual(Incident.objects.count(), 1)
+        inc_kb = Incident.objects.get(asset=self.asset_keyboard)
+        self.assertEqual(inc_kb.status, "Open")
+        self.assertEqual(Evidence.objects.filter(incident=inc_kb).count(), 1)
+
+        # Step 2: Remove Mouse as well while Keyboard is still missing (Mouse = 19, Keyboard = 19)
+        self.mock_detector_engine.detect.return_value = (
+            [{"raw_class_name": "mouse", "class_name": "mouse", "confidence": 0.95, "bbox": [0,0,10,10]}] * 19 +
+            [{"raw_class_name": "keyboard", "class_name": "keyboard", "confidence": 0.92, "bbox": [0,0,10,10]}] * 19
+        )
+
+        for _ in range(3):
+            self.monitoring_engine.monitor_camera_cycle(camera=self.camera, frame=dummy_frame)
+
+        self.assertEqual(Incident.objects.count(), 2)
+        inc_mouse = Incident.objects.get(asset=self.asset_mouse)
+        self.assertEqual(inc_mouse.status, "Open")
+        self.assertEqual(Evidence.objects.filter(incident=inc_mouse).count(), 1)
+
+        # Step 3: Restore Keyboard (Keyboard = 20 present, Mouse = 19 missing)
+        self.mock_detector_engine.detect.return_value = (
+            [{"raw_class_name": "mouse", "class_name": "mouse", "confidence": 0.95, "bbox": [0,0,10,10]}] * 19 +
+            [{"raw_class_name": "keyboard", "class_name": "keyboard", "confidence": 0.92, "bbox": [0,0,10,10]}] * 20
+        )
+        self.monitoring_engine.monitor_camera_cycle(camera=self.camera, frame=dummy_frame)
+
+        inc_kb.refresh_from_db()
+        self.assertEqual(inc_kb.status, "Resolved")
+        inc_mouse.refresh_from_db()
+        self.assertEqual(inc_mouse.status, "Open")
+
+        # Step 4: Restore Mouse (Mouse = 20 present, Keyboard = 20 present)
+        self.mock_detector_engine.detect.return_value = (
+            [{"raw_class_name": "mouse", "class_name": "mouse", "confidence": 0.95, "bbox": [0,0,10,10]}] * 20 +
+            [{"raw_class_name": "keyboard", "class_name": "keyboard", "confidence": 0.92, "bbox": [0,0,10,10]}] * 20
+        )
+        self.monitoring_engine.monitor_camera_cycle(camera=self.camera, frame=dummy_frame)
+
+        inc_mouse.refresh_from_db()
+        self.assertEqual(inc_mouse.status, "Resolved")
+
 
 from ai_engine.video_evidence_service import VideoEvidenceService
 

@@ -8,12 +8,13 @@ from labs.serializers import LabSerializer
 
 
 class IncidentSerializer(serializers.ModelSerializer):
-    """Serializer for Incident model."""
+    """Serializer for Incident model with nested evidence details."""
 
     lab_details = LabSerializer(source="lab", read_only=True)
     camera_details = CameraSerializer(source="camera", read_only=True)
     asset_details = AssetSerializer(source="asset", read_only=True)
     missing_quantity = serializers.SerializerMethodField()
+    evidence_details = serializers.SerializerMethodField()
 
     class Meta:
         model = Incident
@@ -32,8 +33,21 @@ class IncidentSerializer(serializers.ModelSerializer):
             "description",
             "status",
             "detected_at",
+            "evidence_details",
         ]
         read_only_fields = ["id", "detected_at"]
 
     def get_missing_quantity(self, obj: Incident) -> int:
         return max(0, obj.expected_quantity - obj.detected_quantity)
+
+    def get_evidence_details(self, obj: Incident):
+        ev = obj.evidence.first()
+        if not ev:
+            return None
+        return {
+            "id": ev.id,
+            "image": ev.image.url if ev.image else None,
+            "video": ev.video.url if ev.video else None,
+            "confidence": ev.confidence,
+            "captured_at": ev.captured_at,
+        }

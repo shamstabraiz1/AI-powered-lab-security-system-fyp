@@ -65,6 +65,12 @@ class MonitoringEngine:
 
         # In-memory consecutive missing counter state: (camera_id, asset_id) -> missing_frame_count
         self._verification_counter: Dict[Tuple[int, int], int] = {}
+        # In-memory last visible frame snapshot state: (camera_id, asset_id) -> (frame, detections)
+        self._last_visible_frames: Dict[Tuple[int, int], Tuple[np.ndarray, list]] = {}
+        # In-memory Before Image snapshot state: (camera_id, asset_id) -> (frame, detections) (Verification 1/3)
+        self._before_frames: Dict[Tuple[int, int], Tuple[np.ndarray, list]] = {}
+        # In-memory After Image snapshot state: (camera_id, asset_id) -> (frame, detections) (Verification 3/3)
+        self._after_frames: Dict[Tuple[int, int], Tuple[np.ndarray, list]] = {}
 
     def get_active_reference_profile(self, camera: Camera) -> ReferenceProfile:
         """Retrieve the active reference profile for a camera or its laboratory.
@@ -98,30 +104,51 @@ class MonitoringEngine:
 
     def compare_assets(
         self,
+        camera_id: int,
         reference_profile: ReferenceProfile,
         current_counts: Dict[str, int],
-        current_confidences: Dict[str, float]
+        current_confidences: Dict[str, float],
+        current_frame: Optional[np.ndarray] = None,
+        current_detections: Optional[List[Dict[str, Any]]] = None
     ) -> List[Dict[str, Any]]:
-        """Compare current detected asset counts against active reference profile assets."""
+        """Compare current detected asset counts against active reference profile assets independently."""
         missing_assets: List[Dict[str, Any]] = []
         reference_assets: List[ReferenceAsset] = list(reference_profile.assets.all())
 
         for ref_asset in reference_assets:
             asset_obj: Asset = ref_asset.asset
-            asset_name = asset_obj.name.lower()
-            asset_category = asset_obj.category.lower()
+            if not asset_obj:
+                continue
 
+            asset_name = asset_obj.name.lower()
+            asset_category = asset_obj.category.lower() if asset_obj.category else ""
             expected_qty = ref_asset.detected_quantity
 
-            # Check detected quantity by exact asset name or category mapping
-            detected_qty = current_counts.get(asset_name, current_counts.get(asset_category, 0))
+            # Check detected quantity by exact asset name first, then category fallback
+            if asset_name in current_counts:
+                detected_qty = current_counts[asset_name]
+            elif asset_category and asset_category in current_counts and asset_category != asset_name:
+                detected_qty = current_counts[asset_category]
+            else:
+                detected_qty = 0
 
-            if detected_qty < expected_qty:
+            key = (camera_id, asset_obj.id)
+
+            if detected_qty >= expected_qty:
+                # Asset is present! Track as the last visible frame for Before Image
+                if current_frame is not None:
+                    self._last_visible_frames[key] = (current_frame.copy(), current_detections or [])
+            else:
                 missing_qty = expected_qty - detected_qty
                 confidence = current_confidences.get(
                     asset_name,
                     current_confidences.get(asset_category, ref_asset.confidence)
                 )
+
+                try:
+                    conf_val = float(confidence)
+                except Exception:
+                    conf_val = 0.95
 
                 missing_info = {
                     "asset_id": asset_obj.id,
@@ -130,7 +157,7 @@ class MonitoringEngine:
                     "expected": expected_qty,
                     "detected": detected_qty,
                     "missing": missing_qty,
-                    "confidence": round(confidence, 4),
+                    "confidence": round(conf_val, 4),
                 }
                 missing_assets.append(missing_info)
 
@@ -140,15 +167,19 @@ class MonitoringEngine:
         self,
         camera_id: int,
         reference_profile: ReferenceProfile,
-        missing_assets: List[Dict[str, Any]]
+        missing_assets: List[Dict[str, Any]],
+        current_frame: Optional[np.ndarray] = None,
+        current_detections: Optional[List[Dict[str, Any]]] = None
     ) -> Tuple[bool, List[Dict[str, Any]]]:
-        """Update consecutive-missing verification frame counters for camera assets."""
+        """Update consecutive-missing verification frame counters for camera assets, storing Before and After Image frames."""
         missing_asset_ids = {item["asset_id"]: item for item in missing_assets}
 
         verified_missing: List[Dict[str, Any]] = []
         verification_passed = False
 
         for ref_asset in reference_profile.assets.all():
+            if not ref_asset.asset:
+                continue
             asset_id = ref_asset.asset.id
             asset_name = ref_asset.asset.name
             key = (camera_id, asset_id)
@@ -156,15 +187,49 @@ class MonitoringEngine:
             if asset_id in missing_asset_ids:
                 current_count = self._verification_counter.get(key, 0) + 1
                 self._verification_counter[key] = current_count
+
+                # Verification 1/3: Immediately save last frame where asset was still visible (Before Image)
+                if current_count == 1:
+                    last_vis = self._last_visible_frames.get(key)
+                    if last_vis is not None:
+                        self._before_frames[key] = last_vis
+                    elif current_frame is not None:
+                        self._before_frames[key] = (current_frame.copy(), current_detections or [])
+                    log_stage(f"[Stage 6] Verification 1/3: Saved 'Before Image' (last visible frame) for asset '{asset_name}'")
+
                 log_stage(f"[Stage 6] Verification {current_count}/{self.verification_frames} for missing asset '{asset_name}'")
 
+                # Verification 3/3: Confirm incident and save first confirmed missing frame (After Image)
                 if current_count >= self.verification_frames:
                     verification_passed = True
+                    if current_frame is not None:
+                        self._after_frames[key] = (current_frame.copy(), current_detections or [])
+
+                    log_stage(f"[Stage 6] Verification 3/3: Saved 'After Image' (first confirmed missing frame) for asset '{asset_name}'")
+
+                    missing_asset_ids[asset_id]["before_frame_data"] = self._before_frames.get(key, (current_frame, current_detections or []))
+                    missing_asset_ids[asset_id]["after_frame_data"] = self._after_frames.get(key, (current_frame, current_detections or []))
                     verified_missing.append(missing_asset_ids[asset_id])
             else:
                 if key in self._verification_counter and self._verification_counter[key] > 0:
-                    log_stage(f"[Stage 6] ERROR: Verification reset because object '{asset_name}' reappeared.")
+                    log_stage(f"[Stage 6] Verification reset because object '{asset_name}' reappeared.")
                 self._verification_counter[key] = 0
+                self._before_frames.pop(key, None)
+                self._after_frames.pop(key, None)
+                if current_frame is not None:
+                    self._last_visible_frames[key] = (current_frame.copy(), current_detections or [])
+
+                # Auto-resolve open incident for this restored asset if previous incident exists
+                open_incident = Incident.objects.filter(
+                    camera_id=camera_id,
+                    asset_id=asset_id,
+                    status="Open"
+                ).first()
+
+                if open_incident:
+                    open_incident.status = "Resolved"
+                    open_incident.save()
+                    log_stage(f"[Stage 6] Incident #{open_incident.id} for asset '{asset_name}' auto-resolved as asset was restored.")
 
         return verification_passed, verified_missing
 
@@ -175,31 +240,41 @@ class MonitoringEngine:
         frame: np.ndarray,
         camera_service: Optional[CameraService] = None
     ) -> bool:
-        """Atomically create Incident, Evidence, and Notification database records for verified missing assets."""
+        """Evaluates every missing asset independently and creates Incident, Evidence (Before/After Forensic Images), and Notification per missing asset."""
         if not verified_missing_items:
             return False
 
         incident_created = False
 
-        try:
-            with transaction.atomic():
-                for item in verified_missing_items:
-                    asset_obj: Asset = item["asset_obj"]
+        for item in verified_missing_items:
+            asset_obj: Asset = item["asset_obj"]
+            before_data = item.get("before_frame_data", (frame, []))
+            after_data = item.get("after_frame_data", (frame, []))
 
-                    # Check for existing Open incident to avoid creating duplicate active alerts
-                    existing_incident = Incident.objects.filter(
-                        camera=camera,
-                        asset=asset_obj,
-                        status="Open"
-                    ).first()
+            before_frame, before_dets = before_data if isinstance(before_data, tuple) else (frame, [])
+            after_frame, after_dets = after_data if isinstance(after_data, tuple) else (frame, [])
 
-                    if existing_incident:
-                        log_stage(f"[Stage 7] Open incident #{existing_incident.id} already active for asset '{asset_obj.name}'. Skipping duplicate.")
-                        continue
+            # Duplicate prevention check scoped specifically to THIS asset
+            existing_incident = Incident.objects.filter(
+                camera=camera,
+                asset=asset_obj,
+                status="Open"
+            ).first()
+
+            if existing_incident:
+                log_stage(f"[Stage 7] Open incident #{existing_incident.id} already active for asset '{asset_obj.name}'. Skipping duplicate.")
+                continue
+
+            try:
+                with transaction.atomic():
+                    try:
+                        conf_val = float(item["confidence"])
+                    except Exception:
+                        conf_val = 0.95
 
                     # Create new Incident record
                     description = (
-                        f"{item['missing']} {asset_obj.name}(s) missing from {camera.lab.name} "
+                        f"{item['missing']} {asset_obj.name}(s) missing from {camera.lab.name if camera.lab else 'Lab'} "
                         f"(Expected: {item['expected']}, Detected: {item['detected']})."
                     )
                     incident = Incident.objects.create(
@@ -208,51 +283,62 @@ class MonitoringEngine:
                         asset=asset_obj,
                         expected_quantity=item["expected"],
                         detected_quantity=item["detected"],
-                        confidence=item["confidence"],
+                        confidence=conf_val,
                         description=description,
                         status="Open"
                     )
 
                     log_stage(f"[Stage 7] Incident Created: Incident ID #{incident.id} for missing asset '{asset_obj.name}'")
 
-                    # Save evidence frame image to media storage under media/evidence/
-                    evidence_image_path = save_evidence_image(frame=frame, camera_id=camera.id)
+                    # Draw YOLO annotations and save Before Image, After Image, and side-by-side Forensic comparative split image
+                    from ai_engine.utils import save_forensic_evidence_images
+                    evidence_image_path = save_forensic_evidence_images(
+                        incident_id=incident.id,
+                        camera_id=camera.id,
+                        before_frame=before_frame,
+                        before_dets=before_dets,
+                        after_frame=after_frame,
+                        after_dets=after_dets,
+                        asset_name=asset_obj.name
+                    )
 
                     # Create Evidence record linked to Incident
                     evidence = Evidence.objects.create(
                         incident=incident,
                         image=evidence_image_path,
-                        confidence=item["confidence"],
+                        confidence=conf_val,
                         captured_at=timezone.now()
                     )
-                    log_stage(f"[Stage 8] Evidence Saved: Evidence ID #{evidence.id} ({evidence_image_path})")
+                    log_stage(f"[Stage 8] Forensic Evidence Saved: Evidence ID #{evidence.id} ({evidence_image_path})")
 
-                    # Automatically record pre-event + post-event video evidence asynchronously
-                    self.video_evidence_service.record_evidence_video(
-                        camera=camera,
-                        incident=incident,
-                        evidence=evidence,
-                        camera_service=camera_service,
-                        current_frame=frame,
-                        async_record=True
-                    )
+                    # Automatically record pre-event (10s) + post-event (10s) video evidence asynchronously
+                    if self.video_evidence_service:
+                        try:
+                            self.video_evidence_service.record_evidence_video(
+                                camera=camera,
+                                incident=incident,
+                                evidence=evidence,
+                                camera_service=camera_service,
+                                current_frame=after_frame,
+                                async_record=True
+                            )
+                        except Exception as vid_err:
+                            log_stage(f"Warning: Video evidence recording failed for asset '{asset_obj.name}': {str(vid_err)}")
 
                     # Trigger Asset Missing critical notification
                     try:
                         from notifications.services import notify_asset_missing
                         notify_asset_missing(incident)
-                        log_stage(f"[Stage 9] Notification Created: Asset missing in {camera.lab.name} (Camera: {camera.name})")
+                        log_stage(f"[Stage 9] Notification Created: Asset missing in {camera.lab.name if camera.lab else 'Lab'} (Camera: {camera.name})")
                     except Exception as notify_err:
-                        log_stage(f"Warning: Failed to trigger notification: {str(notify_err)}")
+                        log_stage(f"Warning: Failed to trigger notification for asset '{asset_obj.name}': {str(notify_err)}")
 
                     incident_created = True
 
-            return incident_created
+            except Exception as exc:
+                log_stage(f"[Stage 7 Failure] ERROR: Failed to create incident for asset '{asset_obj.name}': {str(exc)}")
 
-        except Exception as exc:
-            error_msg = f"[Stage 7 Failure] ERROR: Incident transaction rolled back for camera {camera.id}: {str(exc)}"
-            log_stage(error_msg)
-            raise DatabaseOperationError(error_msg) from exc
+        return incident_created
 
     def monitor_camera_cycle(
         self,
@@ -290,9 +376,6 @@ class MonitoringEngine:
 
         log_stage(f"[Stage 2] Frame Captured (Resolution: {acquired_frame.shape[1]}x{acquired_frame.shape[0]})")
 
-        # Push frame into VideoEvidenceService circular buffer
-        self.video_evidence_service.add_frame(camera.id, acquired_frame)
-
         # Stage 3: YOLO Detection Complete
         try:
             raw_detections = self.detector_engine.detect(acquired_frame)
@@ -311,6 +394,9 @@ class MonitoringEngine:
             err_msg = f"[Stage 3 Failure] ERROR: YOLO Object Detection failed for Camera ID {camera.id}: {str(yolo_err)}"
             log_stage(err_msg)
             raise ReferenceDetectorError(err_msg) from yolo_err
+
+        # Push frame AND detections into VideoEvidenceService circular buffer
+        self.video_evidence_service.add_frame(camera.id, acquired_frame, detections=filtered_detections)
 
         # Stage 4: Load Active Reference Profile & Expected Assets
         try:
@@ -343,9 +429,12 @@ class MonitoringEngine:
             log_stage("  None")
 
         missing_assets = self.compare_assets(
+            camera_id=camera.id,
             reference_profile=reference_profile,
             current_counts=current_counts,
-            current_confidences=current_confidences
+            current_confidences=current_confidences,
+            current_frame=acquired_frame,
+            current_detections=filtered_detections
         )
 
         if missing_assets:
@@ -359,7 +448,9 @@ class MonitoringEngine:
         verification_passed, verified_missing = self.update_verification_window(
             camera_id=camera.id,
             reference_profile=reference_profile,
-            missing_assets=missing_assets
+            missing_assets=missing_assets,
+            current_frame=acquired_frame,
+            current_detections=filtered_detections
         )
 
         # Stage 7, 8, 9: Incident, Evidence & Notification Creation on Verification Success

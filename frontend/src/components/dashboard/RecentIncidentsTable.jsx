@@ -48,12 +48,14 @@ export const RecentIncidentsTable = ({ incidents = [], isLoading }) => {
   const handleInspect = (inc) => {
     setSelectedIncident({
       id: inc.id,
-      assetName: inc.asset_details?.name || 'Mouse',
-      cameraName: inc.camera_details?.name || 'Cam 1',
-      labName: inc.lab_details?.name || 'SE AI Lab 1',
+      assetName: inc.asset_details?.name || 'Asset',
+      cameraName: inc.camera_details?.name || 'Camera',
+      labName: inc.lab_details?.name || 'Lab',
       confidence: inc.confidence || 0.92,
       time: new Date(inc.detected_at).toLocaleTimeString(),
-      missing: (inc.expected_quantity || 20) - (inc.detected_quantity || 19),
+      missing: inc.missing_quantity || ((inc.expected_quantity || 1) - (inc.detected_quantity || 0)),
+      image: inc.evidence_details?.image || inc.evidence?.image || inc.image,
+      video: inc.evidence_details?.video || inc.evidence?.video || inc.video,
     });
     setIsModalOpen(true);
   };

@@ -67,30 +67,51 @@ class CameraService:
         """Check if camera stream is currently open and connected."""
         return self.cap is not None and self.cap.isOpened()
 
-    def capture_frame(self) -> np.ndarray:
-        """Capture a single frame from the camera stream."""
-        if not self.is_connected():
-            self.connect()
+    def capture_frame(self, max_retries: int = 3, retry_delay: float = 0.5) -> np.ndarray:
+        """Capture a single frame from the camera stream with automatic reconnection retry logic."""
+        import time
 
-        if self.cap is None:
-            raise CameraConnectionError("Camera VideoCapture instance is uninitialized.")
+        for attempt in range(1, max_retries + 1):
+            if not self.is_connected():
+                try:
+                    self.connect()
+                except Exception as conn_err:
+                    logger.warning("Camera reconnection attempt %d/%d failed for source %s: %s", attempt, max_retries, self.source, str(conn_err))
+                    if attempt < max_retries:
+                        time.sleep(retry_delay)
+                        continue
 
-        try:
-            success, frame = self.cap.read()
+            if self.cap is None:
+                if attempt < max_retries:
+                    time.sleep(retry_delay)
+                    continue
+                raise CameraConnectionError("Camera VideoCapture instance is uninitialized.")
 
-            if not success or frame is None or frame.size == 0:
-                error_msg = f"Failed to capture valid frame from camera source: {self.source}"
-                logger.error(error_msg)
-                raise FrameCaptureError(error_msg)
+            try:
+                success, frame = self.cap.read()
 
-            return frame
+                if success and frame is not None and getattr(frame, "size", 0) > 0:
+                    return frame
 
-        except Exception as exc:
-            if isinstance(exc, (CameraConnectionError, FrameCaptureError)):
-                raise
-            error_msg = f"Exception occurred during frame capture: {str(exc)}"
-            logger.error(error_msg)
-            raise FrameCaptureError(error_msg) from exc
+                logger.warning(
+                    "Frame capture attempt %d/%d returned invalid/empty frame for source %s. Reconnecting...",
+                    attempt, max_retries, self.source
+                )
+                self.disconnect()
+
+            except Exception as exc:
+                logger.warning(
+                    "Exception during frame capture attempt %d/%d for source %s: %s. Reconnecting...",
+                    attempt, max_retries, self.source, str(exc)
+                )
+                self.disconnect()
+
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+
+        error_msg = f"Failed to capture valid frame from camera source '{self.source}' after {max_retries} reconnection attempts."
+        logger.error(error_msg)
+        raise FrameCaptureError(error_msg)
 
     def disconnect(self) -> None:
         """Release camera resource and close stream connection."""
