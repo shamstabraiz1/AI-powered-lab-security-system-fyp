@@ -18,4 +18,10 @@ export const incidentService = {
     const response = await api.patch(`/incidents/${id}/`, data);
     return response.data;
   },
+
+  deleteIncident: async (id) => {
+    console.log(`[INCIDENT SERVICE] Deleting incident #${id}...`);
+    const response = await api.delete(`/incidents/${id}/`);
+    return response.data;
+  },
 };

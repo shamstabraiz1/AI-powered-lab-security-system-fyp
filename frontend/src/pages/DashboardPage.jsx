@@ -5,10 +5,8 @@ import { PageHeader } from '../components/layout/PageHeader';
 import { StatCard } from '../components/dashboard/StatCard';
 import { MonitoringStatusPanel } from '../components/dashboard/MonitoringStatusPanel';
 import { SystemHealthPanel } from '../components/dashboard/SystemHealthPanel';
-import { AnalyticsCharts } from '../components/dashboard/AnalyticsCharts';
 import { RecentIncidentsTable } from '../components/dashboard/RecentIncidentsTable';
 import { LiveNotificationsPanel } from '../components/dashboard/LiveNotificationsPanel';
-import { RecentEvidencePanel } from '../components/dashboard/RecentEvidencePanel';
 import { LabStatusPanel } from '../components/dashboard/LabStatusPanel';
 
 import { dashboardService } from '../services/dashboardService';
@@ -239,20 +237,14 @@ export const DashboardPage = () => {
         <SystemHealthPanel />
       </div>
 
-      {/* Visual Analytics Charts Section */}
-      <AnalyticsCharts />
-
       {/* Laboratory Facilities Status Overview */}
       <LabStatusPanel labs={labsList} />
 
       {/* Recent Security Incidents Table */}
       <RecentIncidentsTable incidents={incidentsList} isLoading={incidentsLoading} />
 
-      {/* Live Notifications Feed & Recent Evidence Clips */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <LiveNotificationsPanel notifications={notificationsList} isLoading={notificationsLoading} />
-        <RecentEvidencePanel evidenceList={evidenceList} />
-      </div>
+      {/* Live Notifications Feed */}
+      <LiveNotificationsPanel notifications={notificationsList} isLoading={notificationsLoading} />
     </PageContainer>
   );
 };

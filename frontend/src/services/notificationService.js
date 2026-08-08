@@ -15,8 +15,13 @@ export const notificationService = {
 
   markAllRead: async () => {
     console.log('[NOTIFICATION SERVICE] Marking all notifications as read...');
-    const response = await api.post('/notifications/mark-all-read/');
-    return response.data;
+    try {
+      const response = await api.post('/notifications/mark_all_read/');
+      return response.data;
+    } catch {
+      const response = await api.post('/notifications/mark-all-read/');
+      return response.data;
+    }
   },
 
   deleteNotification: async (id) => {
