@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'notifications',
     'ai_engine',
     'reference',
+    'reports',
 ]
 
 

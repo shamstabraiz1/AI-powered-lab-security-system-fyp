@@ -67,6 +67,7 @@ urlpatterns = [
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
 
     # Registered Router ViewSet API Endpoints
+    path("api/reports/", include("reports.urls")),
     path("api/", include(router.urls)),
 
     # Frontend Single Page Web App Index & SPA Catch-all Route

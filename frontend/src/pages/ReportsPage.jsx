@@ -1,237 +1,273 @@
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { PageContainer } from '../components/layout/PageContainer';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
+import { labService } from '../services/labService';
+import { reportService } from '../services/reportService';
 import {
   FileText,
-  Printer,
-  Download,
+  AlertTriangle,
+  PackageX,
+  ShieldCheck,
+  FileVideo,
   GraduationCap,
-  Award,
-  CheckCircle,
+  Download,
+  Calendar,
   Building,
-  User,
-  Clock,
-  Shield,
-  BarChart2,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
 
 export const ReportsPage = () => {
-  const [activeTab, setActiveTab] = useState('session-report');
+  // Shared Filter State
+  const [selectedLab, setSelectedLab] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [loadingReport, setLoadingReport] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const labIncidentsData = [
-    { name: 'AI Lab 1', count: 12 },
-    { name: 'Robotics 2', count: 5 },
-    { name: 'Network 3', count: 8 },
-  ];
+  // Fetch Labs for filter dropdown
+  const { data: labsData, isLoading: labsLoading } = useQuery({
+    queryKey: ['labs-list'],
+    queryFn: labService.getLabs,
+  });
 
-  const assetIncidentsData = [
-    { name: 'Mouse', value: 15, color: '#38bdf8' },
-    { name: 'Keyboard', value: 8, color: '#818cf8' },
-    { name: 'Monitor', value: 4, color: '#f43f5e' },
-    { name: 'Laptop', value: 3, color: '#fbbf24' },
-  ];
+  const labsList = labsData?.results || (Array.isArray(labsData) ? labsData : []);
 
-  const handlePrint = () => {
-    window.print();
+  const handleResetFilters = () => {
+    setSelectedLab('');
+    setFromDate('');
+    setToDate('');
+    setErrorMessage('');
   };
+
+  const handleDownloadReport = async (reportKey, downloadFn) => {
+    setLoadingReport(reportKey);
+    setErrorMessage('');
+    try {
+      const params = {};
+      if (selectedLab) params.lab_id = selectedLab;
+      if (fromDate) params.from_date = fromDate;
+      if (toDate) params.to_date = toDate;
+
+      await downloadFn(params);
+    } catch (err) {
+      console.error(`[REPORTS PAGE] Failed to download ${reportKey}:`, err);
+      setErrorMessage(
+        `Failed to generate ${reportKey}. Please check network connection or verify filter dates.`
+      );
+    } finally {
+      setLoadingReport(null);
+    }
+  };
+
+  const reportsConfig = [
+    {
+      key: 'incident-report',
+      title: 'Incident Report',
+      subtitle: 'Comprehensive Security Discrepancy Log',
+      description:
+        'Detailed record of security incidents detected by the monitoring engine, including expected vs. detected quantities, vision confidence scores, severity classifications, and investigative status.',
+      icon: AlertTriangle,
+      iconColor: 'text-red-400',
+      iconBg: 'bg-red-500/10',
+      borderHover: 'hover:border-red-500/40',
+      downloadFn: reportService.downloadIncidentReport,
+    },
+    {
+      key: 'asset-missing-report',
+      title: 'Asset Missing Report',
+      subtitle: 'Hardware Discrepancy & Frequency Audit',
+      description:
+        'Calculates aggregated missing asset activity from database records, tracking total missing unit counts, discrepancy frequencies per laboratory, and first/most-recent occurrence timestamps.',
+      icon: PackageX,
+      iconColor: 'text-amber-400',
+      iconBg: 'bg-amber-500/10',
+      borderHover: 'hover:border-amber-500/40',
+      downloadFn: reportService.downloadAssetMissingReport,
+    },
+    {
+      key: 'lab-security-report',
+      title: 'Laboratory Security Report',
+      subtitle: 'Facility Telemetry & Risk Summary',
+      description:
+        'Concise executive security summary for laboratory facilities, calculating total sessions, critical incidents, most frequently missing equipment, forensic evidence records, and security alert volumes.',
+      icon: ShieldCheck,
+      iconColor: 'text-emerald-400',
+      iconBg: 'bg-emerald-500/10',
+      borderHover: 'hover:border-emerald-500/40',
+      downloadFn: reportService.downloadLabSecurityReport,
+    },
+    {
+      key: 'evidence-report',
+      title: 'Evidence Report',
+      subtitle: 'Forensic Media & Chain of Custody Audit',
+      description:
+        'Physical chain-of-custody audit verifying generated forensic evidence packages, before/after discrepancy frames, and verified MP4 video evidence recordings linked to security incidents.',
+      icon: FileVideo,
+      iconColor: 'text-indigo-400',
+      iconBg: 'bg-indigo-500/10',
+      borderHover: 'hover:border-indigo-500/40',
+      downloadFn: reportService.downloadEvidenceReport,
+    },
+    {
+      key: 'lab-session-report',
+      title: 'Lab Session Report',
+      subtitle: 'Academic Course Surveillance & Instructor Log',
+      description:
+        'Official record of laboratory sessions, instructor activity from database records, active camera surveillance windows, and concurrent discrepancy telemetry recorded during academic periods.',
+      icon: GraduationCap,
+      iconColor: 'text-cyan-400',
+      iconBg: 'bg-cyan-500/10',
+      borderHover: 'hover:border-cyan-500/40',
+      downloadFn: reportService.downloadLabSessionReport,
+    },
+  ];
 
   return (
     <PageContainer>
       <PageHeader
-        title="Academic Session Reports & AI Performance Analytics"
-        subtitle="Generate printable university security reports, asset audit logs, and AI vision engine performance analytics"
+        title="Security Operations Center (SOC) Reports"
+        subtitle="Generate and download real, database-driven official PDF security audits and facility telemetry reports"
         icon={FileText}
-        actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" icon={Printer} onClick={handlePrint}>
-              Print Report
-            </Button>
-            <Button icon={Download} onClick={handlePrint}>
-              Export PDF
-            </Button>
-          </div>
-        }
       />
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-800 gap-2">
-        <button
-          onClick={() => setActiveTab('session-report')}
-          className={`pb-2 px-4 text-xs font-bold font-heading border-b-2 transition ${activeTab === 'session-report' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}
-        >
-          Printable University Session Report
-        </button>
-        <button
-          onClick={() => setActiveTab('analytics')}
-          className={`pb-2 px-4 text-xs font-bold font-heading border-b-2 transition ${activeTab === 'analytics' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}
-        >
-          AI Analytics & Performance Reports
-        </button>
-      </div>
-
-      {activeTab === 'session-report' ? (
-        /* Printable University Document */
-        <div id="printable-area" className="p-8 bg-slate-900 border border-slate-800 rounded-2xl space-y-6 text-slate-200 text-xs shadow-2xl">
-          {/* Header */}
-          <div className="text-center pb-6 border-b border-slate-800 space-y-1">
-            <div className="flex justify-center items-center gap-2 text-cyan-400 font-bold font-heading text-lg">
-              <GraduationCap className="w-7 h-7" /> DEPARTMENT OF SOFTWARE ENGINEERING
-            </div>
-            <h2 className="text-xl font-extrabold text-white font-heading">
-              AI Powered Laboratory Security & Asset Monitoring System
-            </h2>
-            <p className="text-slate-400 text-xs">Official Academic Laboratory Session Audit Report</p>
+      {/* Shared Filter Controls */}
+      <Card
+        title="Report Generation Filters"
+        subtitle="Configure target facility and date range parameters to filter database records for all reports"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          {/* Laboratory Selector */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5 font-heading">
+              <Building className="w-3.5 h-3.5 text-blue-400" /> Target Laboratory
+            </label>
+            <select
+              value={selectedLab}
+              onChange={(e) => setSelectedLab(e.target.value)}
+              disabled={labsLoading}
+              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition"
+            >
+              <option value="">All Laboratories</option>
+              {labsList.map((lab) => (
+                <option key={lab.id} value={lab.id}>
+                  {lab.name} ({lab.building || 'Room'} {lab.room_number})
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* Session Overview */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-950 rounded-xl border border-slate-800">
-            <div>
-              <span className="text-slate-400 block font-semibold">Laboratory Facility:</span>
-              <strong className="text-white text-sm">Software Engineering AI Lab 1 (Room 101)</strong>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-semibold">Instructor:</span>
-              <strong className="text-white text-sm">Dr. Tabraiz Shams</strong>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-semibold">Course & Code:</span>
-              <strong className="text-cyan-400 text-sm">SE-402: Computer Vision & AI Systems</strong>
-            </div>
-            <div>
-              <span className="text-slate-400 block font-semibold">Session Topic:</span>
-              <strong className="text-slate-200 text-sm">Real-time Asset Baseline Monitoring</strong>
-            </div>
+          {/* From Date */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5 font-heading">
+              <Calendar className="w-3.5 h-3.5 text-cyan-400" /> From Date
+            </label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition font-mono"
+            />
           </div>
 
-          {/* AI Engine Summary */}
-          <div className="space-y-2">
-            <h3 className="font-bold text-white font-heading text-sm">AI Computer Vision Monitoring Summary</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Total Frames</span>
-                <strong className="text-white font-mono font-bold text-sm">45,120</strong>
-              </div>
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Detection Accuracy</span>
-                <strong className="text-emerald-400 font-mono font-bold text-sm">98.4%</strong>
-              </div>
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Framerate</span>
-                <strong className="text-cyan-400 font-mono font-bold text-sm">20.0 FPS</strong>
-              </div>
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block text-[10px]">Scheduler Uptime</span>
-                <strong className="text-emerald-400 font-mono font-bold text-sm">100%</strong>
-              </div>
-            </div>
+          {/* To Date */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5 font-heading">
+              <Calendar className="w-3.5 h-3.5 text-cyan-400" /> To Date
+            </label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition font-mono"
+            />
           </div>
 
-          {/* Asset Audit Breakdown Table */}
-          <div className="space-y-2">
-            <h3 className="font-bold text-white font-heading text-sm">Final Asset Inventory Audit</h3>
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
-                  <th className="p-2.5">Asset Category</th>
-                  <th className="p-2.5">Expected Count</th>
-                  <th className="p-2.5">Final Detected</th>
-                  <th className="p-2.5">Discrepancy</th>
-                  <th className="p-2.5">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                <tr>
-                  <td className="p-2.5 font-bold text-white">Monitors</td>
-                  <td className="p-2.5 font-mono">20</td>
-                  <td className="p-2.5 font-mono">20</td>
-                  <td className="p-2.5 font-mono text-emerald-400">0</td>
-                  <td className="p-2.5"><Badge variant="success">COMPLETE</Badge></td>
-                </tr>
-                <tr>
-                  <td className="p-2.5 font-bold text-white">Keyboards</td>
-                  <td className="p-2.5 font-mono">20</td>
-                  <td className="p-2.5 font-mono">20</td>
-                  <td className="p-2.5 font-mono text-emerald-400">0</td>
-                  <td className="p-2.5"><Badge variant="success">COMPLETE</Badge></td>
-                </tr>
-                <tr>
-                  <td className="p-2.5 font-bold text-white">Mice</td>
-                  <td className="p-2.5 font-mono">20</td>
-                  <td className="p-2.5 font-mono text-amber-400">19</td>
-                  <td className="p-2.5 font-mono text-red-400">-1</td>
-                  <td className="p-2.5"><Badge variant="danger">MISSING (1)</Badge></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Signatures & Stamp */}
-          <div className="pt-8 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center text-xs">
-            <div className="space-y-4">
-              <div className="h-10 border-b border-slate-700"></div>
-              <span className="text-slate-400 font-semibold block">Instructor Signature</span>
-              <span className="text-white font-bold block">Dr. Tabraiz Shams</span>
-            </div>
-            <div className="space-y-4">
-              <div className="h-10 border-b border-slate-700"></div>
-              <span className="text-slate-400 font-semibold block">Security Officer Signature</span>
-              <span className="text-white font-bold block">Security Officer Khan</span>
-            </div>
-            <div className="p-4 bg-slate-950 border border-dashed border-slate-700 rounded-xl flex items-center justify-center text-slate-500 font-bold uppercase tracking-widest text-[10px]">
-              Department Stamp Area
-            </div>
+          {/* Reset Filters */}
+          <div>
+            <Button
+              variant="outline"
+              icon={RotateCcw}
+              onClick={handleResetFilters}
+              className="w-full"
+            >
+              Clear Filters
+            </Button>
           </div>
         </div>
-      ) : (
-        /* Recharts Analytics Charts */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card title="Incidents by Laboratory" subtitle="Distribution of discrepancy alerts per lab facility">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={labIncidentsData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} />
-                  <YAxis stroke="#94a3b8" fontSize={11} />
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} />
-                  <Bar dataKey="count" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
 
-          <Card title="Incidents by Asset Category" subtitle="Breakdown of missing assets detected by YOLOv8">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={assetIncidentsData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                    {assetIncidentsData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '11px' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
+        {(selectedLab || fromDate || toDate) && (
+          <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center gap-2 text-xs text-slate-400">
+            <span className="font-semibold text-slate-300">Active Query Filter:</span>
+            <span>
+              {selectedLab ? `Lab: ${labsList.find((l) => String(l.id) === String(selectedLab))?.name || selectedLab}` : 'All Labs'}
+              {fromDate ? ` &bull; From ${fromDate}` : ''}
+              {toDate ? ` &bull; To ${toDate}` : ''}
+            </span>
+          </div>
+        )}
+      </Card>
+
+      {/* Error Message Callout */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{errorMessage}</span>
         </div>
       )}
+
+      {/* 5 Real Database-Driven Report Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {reportsConfig.map((report) => {
+          const Icon = report.icon;
+          const isDownloading = loadingReport === report.key;
+
+          return (
+            <div
+              key={report.key}
+              className={`glass-panel p-6 rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl flex flex-col justify-between transition group ${report.borderHover}`}
+            >
+              <div className="space-y-4">
+                {/* Header with Icon */}
+                <div className="flex items-start gap-3.5">
+                  <div className={`p-3 rounded-xl ${report.iconBg} ${report.iconColor} shrink-0`}>
+                    <Icon className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white font-heading group-hover:text-cyan-400 transition">
+                      {report.title}
+                    </h3>
+                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">
+                      {report.subtitle}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <p className="text-xs text-slate-300 leading-relaxed font-sans">
+                  {report.description}
+                </p>
+              </div>
+
+              {/* Action Button */}
+              <div className="pt-6 border-t border-slate-800/80 mt-6">
+                <Button
+                  variant="primary"
+                  icon={Download}
+                  loading={isDownloading}
+                  onClick={() => handleDownloadReport(report.title, report.downloadFn)}
+                  className="w-full justify-center text-xs font-bold"
+                >
+                  {isDownloading ? 'Generating PDF...' : 'Download PDF'}
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </PageContainer>
   );
 };
