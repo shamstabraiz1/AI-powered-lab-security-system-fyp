@@ -19,7 +19,7 @@ from ai_engine.views import (
 )
 from assets.views import AssetViewSet
 from cameras.views import CameraViewSet
-from core.views import AnalyticsAPIView, DashboardAPIView, UserProfileAPIView
+from core.views import AnalyticsAPIView, ChangePasswordAPIView, DashboardAPIView, UserProfileAPIView
 from evidence.views import EvidenceViewSet
 from incidents.views import IncidentViewSet
 from labs.views import LabViewSet
@@ -48,6 +48,7 @@ urlpatterns = [
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/auth/profile/", UserProfileAPIView.as_view(), name="user_profile"),
+    path("api/auth/change-password/", ChangePasswordAPIView.as_view(), name="change_password"),
 
     # Dashboard & Analytics Endpoints
     path("api/dashboard/", DashboardAPIView.as_view(), name="dashboard"),

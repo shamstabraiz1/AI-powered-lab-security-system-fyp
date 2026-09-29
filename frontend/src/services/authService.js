@@ -23,4 +23,12 @@ export const authService = {
     const response = await api.post('/auth/token/refresh/', { refresh });
     return response.data;
   },
+
+  changePassword: async ({ old_password, new_password }) => {
+    console.log('[AUTH Service] Submitting password change request...');
+    const response = await api.post('/auth/change-password/', { old_password, new_password });
+    console.log('[AUTH Service] Password change response:', response.data);
+    return response.data;
+  },
 };
+

@@ -135,3 +135,39 @@ class AnalyticsAPIView(APIView):
         }
 
         return Response(analytics_data, status=status.HTTP_200_OK)
+
+
+class ChangePasswordAPIView(APIView):
+    """POST /api/auth/change-password/ - Securely update authenticated user password."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        old_password = request.data.get("old_password")
+        new_password = request.data.get("new_password")
+
+        if not old_password or not new_password:
+            return Response(
+                {"error": "Both old_password and new_password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not request.user.check_password(old_password):
+            return Response(
+                {"error": "Current password is incorrect."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(new_password) < 6:
+            return Response(
+                {"error": "New password must be at least 6 characters long."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        request.user.set_password(new_password)
+        request.user.save()
+        return Response(
+            {"message": "Password updated successfully."},
+            status=status.HTTP_200_OK,
+        )
+

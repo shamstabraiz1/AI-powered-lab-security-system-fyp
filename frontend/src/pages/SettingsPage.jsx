@@ -1,366 +1,663 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { PageContainer } from '../components/layout/PageContainer';
 import { PageHeader } from '../components/layout/PageHeader';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { useAuthContext } from '../context/AuthContext';
+import { authService } from '../services/authService';
+import { labService } from '../services/labService';
+import { cameraService } from '../services/cameraService';
+import { referenceService } from '../services/referenceService';
 import {
   Settings,
-  Cpu,
-  Shield,
-  Users,
-  FileText,
-  Activity,
-  Database,
-  Save,
-  CheckCircle,
-  HardDrive,
-  RefreshCw,
-  Info,
-  Lock,
   Bell,
-  Video,
-  Download,
-  GraduationCap,
-  Award,
+  Sliders,
+  UserCheck,
+  Info,
+  CheckCircle,
+  AlertCircle,
+  Lock,
+  LogOut,
+  Save,
+  Shield,
+  Building,
+  Camera,
+  Layers,
+  Cpu,
+  Volume2,
+  VolumeX,
+  Globe,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const SettingsPage = () => {
-  const [activeTab, setActiveTab] = useState('settings');
+  const { user, logout } = useAuthContext();
+  const [activeTab, setActiveTab] = useState('notifications');
   const [toastMessage, setToastMessage] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [toastType, setToastType] = useState('success');
 
-  // Settings State
-  const [univName, setUnivName] = useState('Department of Software Engineering');
-  const [systemName, setSystemName] = useState('AI Powered Lab Security System');
-  const [yoloModel, setYoloModel] = useState('yolov8m.pt');
-  const [confidence, setConfidence] = useState('0.25');
-  const [verificationFrames, setVerificationFrames] = useState('3');
-  const [preEventSec, setPreEventSec] = useState('10');
-  const [postEventSec, setPostEventSec] = useState('10');
-  const [retentionDays, setRetentionDays] = useState('30');
-  const [enableSound, setEnableSound] = useState(true);
+  // --- 1. NOTIFICATIONS STATE (Saved in localStorage) ---
+  const [notificationSettings, setNotificationSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('app_notification_settings');
+      return saved
+        ? JSON.parse(saved)
+        : {
+            securityNotifications: true,
+            criticalAlerts: true,
+            notificationSound: true,
+            browserNotifications: typeof Notification !== 'undefined' && Notification.permission === 'granted',
+          };
+    } catch {
+      return {
+        securityNotifications: true,
+        criticalAlerts: true,
+        notificationSound: true,
+        browserNotifications: false,
+      };
+    }
+  });
 
-  const showToast = (msg) => {
+  const [savingNotifications, setSavingNotifications] = useState(false);
+
+  // --- 3. ACCOUNT & SECURITY (Change Password State) ---
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  // --- 4. SYSTEM INFORMATION (Live Database Queries) ---
+  const { data: labsData, isLoading: labsLoading } = useQuery({
+    queryKey: ['labs-count'],
+    queryFn: labService.getLabs,
+  });
+
+  const { data: camerasData, isLoading: camerasLoading } = useQuery({
+    queryKey: ['cameras-count'],
+    queryFn: cameraService.getCameras,
+  });
+
+  const { data: referenceData, isLoading: refLoading } = useQuery({
+    queryKey: ['reference-profiles-count'],
+    queryFn: referenceService.getReferenceProfiles,
+  });
+
+  const totalLabsCount = labsData?.count ?? (Array.isArray(labsData?.results) ? labsData.results.length : Array.isArray(labsData) ? labsData.length : 0);
+  const totalCamerasCount = camerasData?.count ?? (Array.isArray(camerasData?.results) ? camerasData.results.length : Array.isArray(camerasData) ? camerasData.length : 0);
+  
+  const referenceList = referenceData?.results || (Array.isArray(referenceData) ? referenceData : []);
+  const activeProfilesCount = referenceList.filter((p) => p.is_active !== false).length;
+
+  const showToast = (msg, type = 'success') => {
     setToastMessage(msg);
+    setToastType(type);
     setTimeout(() => setToastMessage(''), 4000);
   };
 
-  const handleSaveSettings = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    setSaving(false);
-    showToast('System & AI Engine Settings updated successfully.');
+  // Toggle notification preference
+  const handleToggleNotification = async (key) => {
+    if (key === 'browserNotifications') {
+      if (typeof Notification === 'undefined') {
+        showToast('Browser notifications are not supported in this browser.', 'error');
+        return;
+      }
+      if (Notification.permission !== 'granted') {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          setNotificationSettings((prev) => ({ ...prev, browserNotifications: true }));
+          showToast('Browser notifications permission granted.');
+        } else {
+          setNotificationSettings((prev) => ({ ...prev, browserNotifications: false }));
+          showToast('Browser notifications permission denied by browser.', 'error');
+        }
+        return;
+      }
+    }
+    setNotificationSettings((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const usersList = [
-    { id: 1, name: 'Dr. Tabraiz Shams', username: 'tabraiz.shams', role: 'Lab Instructor', email: 'tabraiz@se.edu.pk', status: 'Active' },
-    { id: 2, name: 'Security Officer Khan', username: 'officer.khan', role: 'Security Officer', email: 'khan@security.edu.pk', status: 'Active' },
-    { id: 3, name: 'System Administrator', username: 'admin', role: 'Administrator', email: 'admin@se.edu.pk', status: 'Active' },
-  ];
+  const handleSaveNotifications = (e) => {
+    e.preventDefault();
+    setSavingNotifications(true);
+    try {
+      localStorage.setItem('app_notification_settings', JSON.stringify(notificationSettings));
+      setTimeout(() => {
+        setSavingNotifications(false);
+        showToast('Notification preferences saved successfully.');
+      }, 300);
+    } catch (err) {
+      setSavingNotifications(false);
+      showToast('Failed to save notification preferences to browser storage.', 'error');
+    }
+  };
 
-  const auditLogs = [
-    { id: 101, user: 'admin', action: 'Update AI Confidence Threshold (0.25)', ip: '127.0.0.1', module: 'AI Engine', timestamp: new Date().toLocaleString() },
-    { id: 102, user: 'tabraiz.shams', action: 'Start Session #SES-9981', ip: '192.168.1.50', module: 'Sessions', timestamp: new Date(Date.now() - 3600000).toLocaleString() },
-    { id: 103, user: 'officer.khan', action: 'Update Incident #INC-881 Status (Resolved)', ip: '192.168.1.52', module: 'Incidents', timestamp: new Date(Date.now() - 7200000).toLocaleString() },
-  ];
+  // Handle Password Change
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    setPasswordError('');
+
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      setPasswordError('Please fill in all password fields.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New password and confirmation password do not match.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordError('New password must be at least 6 characters long.');
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      await authService.changePassword({ old_password: oldPassword, new_password: newPassword });
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      showToast('Account password updated successfully.');
+    } catch (err) {
+      console.error('[SETTINGS] Change password error:', err);
+      const errMsg =
+        err.response?.data?.error ||
+        err.response?.data?.detail ||
+        'Failed to update password. Please verify current password.';
+      setPasswordError(errMsg);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
 
   return (
     <PageContainer>
       <PageHeader
-        title="System Administration & Configuration Panel"
-        subtitle="Manage global system settings, AI engine parameters, user roles, security audit logs, system diagnostics, and backups"
+        title="System Administration & Settings"
+        subtitle="Manage notification alerts, system configuration, account security credentials, and view real-time facility telemetry"
         icon={Settings}
       />
 
-      {/* Success Toast */}
+      {/* Status Toast */}
       <AnimatePresence>
         {toastMessage && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="p-3 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg"
+            className={`p-3 border text-xs font-bold rounded-xl flex items-center gap-2 shadow-lg ${
+              toastType === 'error'
+                ? 'bg-red-500/15 border-red-500/30 text-red-400'
+                : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+            }`}
           >
-            <CheckCircle className="w-4 h-4 shrink-0" />
+            {toastType === 'error' ? <AlertCircle className="w-4 h-4 shrink-0" /> : <CheckCircle className="w-4 h-4 shrink-0" />}
             <span>{toastMessage}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Tabs Bar */}
+      {/* Tabs Navigation Bar: Exactly the 4 Approved Categories */}
       <div className="flex border-b border-slate-800 gap-2 overflow-x-auto select-none">
         <button
-          onClick={() => setActiveTab('settings')}
-          className={`pb-2 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap ${activeTab === 'settings' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}
+          onClick={() => setActiveTab('notifications')}
+          className={`pb-2.5 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap flex items-center gap-2 ${
+            activeTab === 'notifications'
+              ? 'border-blue-500 text-blue-400'
+              : 'border-transparent text-slate-400 hover:text-white'
+          }`}
         >
-          System & AI Engine Settings
+          <Bell className="w-4 h-4" /> Notifications
         </button>
+
         <button
-          onClick={() => setActiveTab('users')}
-          className={`pb-2 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap ${activeTab === 'users' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}
+          onClick={() => setActiveTab('system')}
+          className={`pb-2.5 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap flex items-center gap-2 ${
+            activeTab === 'system'
+              ? 'border-blue-500 text-blue-400'
+              : 'border-transparent text-slate-400 hover:text-white'
+          }`}
         >
-          User & Role Management
+          <Sliders className="w-4 h-4" /> System
         </button>
+
         <button
-          onClick={() => setActiveTab('audit')}
-          className={`pb-2 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap ${activeTab === 'audit' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}
+          onClick={() => setActiveTab('account')}
+          className={`pb-2.5 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap flex items-center gap-2 ${
+            activeTab === 'account'
+              ? 'border-blue-500 text-blue-400'
+              : 'border-transparent text-slate-400 hover:text-white'
+          }`}
         >
-          Audit Logs & Security Trail
+          <UserCheck className="w-4 h-4" /> Account & Security
         </button>
+
         <button
-          onClick={() => setActiveTab('health')}
-          className={`pb-2 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap ${activeTab === 'health' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}
+          onClick={() => setActiveTab('info')}
+          className={`pb-2.5 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap flex items-center gap-2 ${
+            activeTab === 'info'
+              ? 'border-blue-500 text-blue-400'
+              : 'border-transparent text-slate-400 hover:text-white'
+          }`}
         >
-          System Diagnostics & Backups
-        </button>
-        <button
-          onClick={() => setActiveTab('about')}
-          className={`pb-2 px-4 text-xs font-bold font-heading border-b-2 transition whitespace-nowrap ${activeTab === 'about' ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-white'}`}
-        >
-          About System (FYP)
+          <Info className="w-4 h-4" /> System Information
         </button>
       </div>
 
-      {/* Tab 1: System & AI Engine Settings */}
-      {activeTab === 'settings' && (
-        <form onSubmit={handleSaveSettings} className="space-y-6 text-xs">
-          <Card title="General & Academic Information" subtitle="System title, department information, and localization parameters">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">University / Department Name</label>
-                <input
-                  type="text"
-                  value={univName}
-                  onChange={(e) => setUnivName(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">System Title</label>
-                <input
-                  type="text"
-                  value={systemName}
-                  onChange={(e) => setSystemName(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white"
-                />
-              </div>
-            </div>
-          </Card>
-
-          <Card title="YOLOv8 Computer Vision Engine Settings" subtitle="Detection confidence threshold, verification frames, and AI model parameters">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Selected Model Architecture</label>
-                <select
-                  value={yoloModel}
-                  onChange={(e) => setYoloModel(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
+      {/* ========================================================================= */}
+      {/* 1. NOTIFICATIONS SECTION                                                  */}
+      {/* ========================================================================= */}
+      {activeTab === 'notifications' && (
+        <form onSubmit={handleSaveNotifications} className="space-y-6 text-xs">
+          <Card
+            title="Security Notification Preferences"
+            subtitle="Configure how the application delivers surveillance alerts and incident notifications to your interface"
+          >
+            <div className="space-y-4">
+              {/* Security Notifications Toggle */}
+              <div className="flex items-center justify-between p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-blue-400" />
+                    <span className="text-white font-bold font-heading">Security Notifications</span>
+                  </div>
+                  <p className="text-slate-400 text-[11px]">
+                    Display real-time security alerts and incident notices in the application header and notification module.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotification('securityNotifications')}
+                  className={`w-12 h-6 flex items-center rounded-full p-1 transition duration-300 cursor-pointer ${
+                    notificationSettings.securityNotifications ? 'bg-blue-600 justify-end' : 'bg-slate-800 justify-start'
+                  }`}
                 >
-                  <option value="yolov8m.pt">YOLOv8 Medium (yolov8m.pt)</option>
-                  <option value="yolov8n.pt">YOLOv8 Nano (yolov8n.pt)</option>
-                  <option value="yolov8s.pt">YOLOv8 Small (yolov8s.pt)</option>
-                </select>
+                  <motion.div layout className="w-4 h-4 bg-white rounded-full shadow-md" />
+                </button>
               </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Confidence Threshold (0.1 - 1.0)</label>
-                <input
-                  type="number"
-                  step="0.05"
-                  value={confidence}
-                  onChange={(e) => setConfidence(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-                />
+              {/* Critical Incident Alerts Toggle */}
+              <div className="flex items-center justify-between p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400" />
+                    <span className="text-white font-bold font-heading">Critical Incident Alerts</span>
+                  </div>
+                  <p className="text-slate-400 text-[11px]">
+                    Receive high-priority alerts whenever an asset discrepancy is confirmed by the 3-stage verification engine.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotification('criticalAlerts')}
+                  className={`w-12 h-6 flex items-center rounded-full p-1 transition duration-300 cursor-pointer ${
+                    notificationSettings.criticalAlerts ? 'bg-blue-600 justify-end' : 'bg-slate-800 justify-start'
+                  }`}
+                >
+                  <motion.div layout className="w-4 h-4 bg-white rounded-full shadow-md" />
+                </button>
               </div>
 
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Verification Window (Frames)</label>
-                <input
-                  type="number"
-                  value={verificationFrames}
-                  onChange={(e) => setVerificationFrames(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-                />
+              {/* Notification Sound Toggle */}
+              <div className="flex items-center justify-between p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    {notificationSettings.notificationSound ? (
+                      <Volume2 className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <VolumeX className="w-4 h-4 text-slate-400" />
+                    )}
+                    <span className="text-white font-bold font-heading">Notification Sound</span>
+                  </div>
+                  <p className="text-slate-400 text-[11px]">
+                    Play an audible tone when new security alerts and discrepancy events are detected.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotification('notificationSound')}
+                  className={`w-12 h-6 flex items-center rounded-full p-1 transition duration-300 cursor-pointer ${
+                    notificationSettings.notificationSound ? 'bg-blue-600 justify-end' : 'bg-slate-800 justify-start'
+                  }`}
+                >
+                  <motion.div layout className="w-4 h-4 bg-white rounded-full shadow-md" />
+                </button>
+              </div>
+
+              {/* Browser Push Notifications Toggle */}
+              <div className="flex items-center justify-between p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-cyan-400" />
+                    <span className="text-white font-bold font-heading">Browser Notifications</span>
+                  </div>
+                  <p className="text-slate-400 text-[11px]">
+                    Send native desktop notifications via the web browser when new incidents occur while the tab is in background.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleToggleNotification('browserNotifications')}
+                  className={`w-12 h-6 flex items-center rounded-full p-1 transition duration-300 cursor-pointer ${
+                    notificationSettings.browserNotifications ? 'bg-blue-600 justify-end' : 'bg-slate-800 justify-start'
+                  }`}
+                >
+                  <motion.div layout className="w-4 h-4 bg-white rounded-full shadow-md" />
+                </button>
               </div>
             </div>
-          </Card>
 
-          <Card title="Video Evidence & Storage Retention Settings" subtitle="Pre/post event recording clip lengths and retention period">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Pre-Event Recording (Seconds)</label>
-                <input
-                  type="number"
-                  value={preEventSec}
-                  onChange={(e) => setPreEventSec(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Post-Event Recording (Seconds)</label>
-                <input
-                  type="number"
-                  value={postEventSec}
-                  onChange={(e) => setPostEventSec(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold">Auto Retention Period (Days)</label>
-                <input
-                  type="number"
-                  value={retentionDays}
-                  onChange={(e) => setRetentionDays(e.target.value)}
-                  className="w-full px-3 py-2 rounded bg-slate-950 border border-slate-800 text-white font-mono"
-                />
-              </div>
+            <div className="flex justify-end pt-4 border-t border-slate-800/80 mt-4">
+              <Button type="submit" loading={savingNotifications} icon={Save}>
+                Save Notification Preferences
+              </Button>
             </div>
           </Card>
-
-          <div className="flex justify-end">
-            <Button type="submit" loading={saving} icon={Save}>
-              Save All Configuration Settings
-            </Button>
-          </div>
         </form>
       )}
 
-      {/* Tab 2: User & Role Management */}
-      {activeTab === 'users' && (
-        <Card title="User Accounts & Role Permissions" subtitle="Manage university staff users, roles (Administrator, Instructor, Officer), and access controls">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
-                  <th className="p-3">Full Name</th>
-                  <th className="p-3">Username</th>
-                  <th className="p-3">Assigned Role</th>
-                  <th className="p-3">Email Address</th>
-                  <th className="p-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {usersList.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-800/40 transition">
-                    <td className="p-3 font-bold text-white font-heading">{u.name}</td>
-                    <td className="p-3 font-mono text-cyan-400">{u.username}</td>
-                    <td className="p-3 font-semibold text-slate-200">{u.role}</td>
-                    <td className="p-3 text-slate-400">{u.email}</td>
-                    <td className="p-3">
-                      <Badge variant="success" dot>{u.status}</Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {/* Tab 3: Audit Logs */}
-      {activeTab === 'audit' && (
-        <Card title="Security Audit Logs & Activity Trail" subtitle="Chronological audit records of system actions, configuration updates, and security events">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-950 text-slate-400 uppercase text-[10px] font-heading border-b border-slate-800">
-                  <th className="p-3">Audit ID</th>
-                  <th className="p-3">User</th>
-                  <th className="p-3">Module</th>
-                  <th className="p-3">Executed Action</th>
-                  <th className="p-3">IP Address</th>
-                  <th className="p-3">Timestamp</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {auditLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-800/40 transition">
-                    <td className="p-3 font-mono text-slate-400">#AUD-{log.id}</td>
-                    <td className="p-3 font-bold text-cyan-400">{log.user}</td>
-                    <td className="p-3 font-semibold text-slate-200">{log.module}</td>
-                    <td className="p-3 text-slate-300">{log.action}</td>
-                    <td className="p-3 font-mono text-slate-400 text-[11px]">{log.ip}</td>
-                    <td className="p-3 font-mono text-slate-400 text-[11px]">{log.timestamp}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {/* Tab 4: System Health & Diagnostics */}
-      {activeTab === 'health' && (
+      {/* ========================================================================= */}
+      {/* 2. SYSTEM SECTION                                                         */}
+      {/* ========================================================================= */}
+      {activeTab === 'system' && (
         <div className="space-y-6 text-xs">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-4 bg-slate-900 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px] uppercase font-bold tracking-widest block font-heading">PostgreSQL DB</span>
-              <strong className="text-emerald-400 text-sm font-bold block mt-1">Operational (Connected)</strong>
-            </div>
-            <div className="p-4 bg-slate-900 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px] uppercase font-bold tracking-widest block font-heading">YOLOv8 Engine</span>
-              <strong className="text-emerald-400 text-sm font-bold block mt-1">Operational (yolov8m.pt)</strong>
-            </div>
-            <div className="p-4 bg-slate-900 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px] uppercase font-bold tracking-widest block font-heading">Scheduler Status</span>
-              <strong className="text-emerald-400 text-sm font-bold block mt-1">RUNNING (1 Thread)</strong>
-            </div>
-            <div className="p-4 bg-slate-900 rounded-xl border border-slate-800">
-              <span className="text-slate-400 text-[10px] uppercase font-bold tracking-widest block font-heading">Disk Usage</span>
-              <strong className="text-cyan-400 text-sm font-bold block mt-1">14.2 GB / 250 GB</strong>
-            </div>
-          </div>
-
-          <Card title="Database Backup & Disaster Recovery Management" subtitle="Create manual database backups or restore snapshot states">
-            <div className="flex items-center justify-between p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-              <div>
-                <span className="text-white font-bold block">PostgreSQL Latest Database Backup</span>
-                <span className="text-slate-400 text-[11px] font-mono">backup_2026_07_26.sql.gz (18.4 MB)</span>
+          <Card
+            title="System & Localization Configuration"
+            subtitle="Application identity, department designation, and regional localization parameters"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block font-heading">Application Name</span>
+                <span className="text-white font-bold text-sm block">AI Powered Lab Security System</span>
+                <span className="text-slate-500 text-[10px]">Configured Project Title</span>
               </div>
-              <Button icon={Download} onClick={() => showToast('Database backup downloaded successfully.')}>
-                Download Backup
-              </Button>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block font-heading">Department Name</span>
+                <span className="text-cyan-400 font-bold text-sm block">Department of Software Engineering</span>
+                <span className="text-slate-500 text-[10px]">Academic Organization Entity</span>
+              </div>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block font-heading">Time Zone</span>
+                <span className="text-white font-mono font-bold text-sm block">Asia/Karachi (PKT, UTC+5)</span>
+                <span className="text-slate-500 text-[10px]">Django Server Backend Timezone</span>
+              </div>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block font-heading">Date Format</span>
+                <span className="text-white font-mono font-bold text-sm block">DD/MM/YYYY (e.g. 09/08/2026)</span>
+                <span className="text-slate-500 text-[10px]">Standard Local Display Format</span>
+              </div>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block font-heading">Time Format</span>
+                <span className="text-white font-mono font-bold text-sm block">12-Hour Format with AM/PM</span>
+                <span className="text-slate-500 text-[10px]">Security Operations Log Display</span>
+              </div>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 space-y-1">
+                <span className="text-[11px] font-semibold text-slate-400 block font-heading">Server Host & Protocol</span>
+                <span className="text-emerald-400 font-mono font-bold text-sm block">Django REST Framework (127.0.0.1:8000)</span>
+                <span className="text-slate-500 text-[10px]">JWT Bearer Token Authentication</span>
+              </div>
             </div>
           </Card>
         </div>
       )}
 
-      {/* Tab 5: About System (FYP) */}
-      {activeTab === 'about' && (
-        <Card title="About AI Powered Laboratory Security & Asset Monitoring System" subtitle="Final Year Project (FYP) Information & Technology Stack Specification">
-          <div className="space-y-4 text-xs text-slate-300">
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-2">
-              <div className="flex items-center gap-2 text-cyan-400 font-bold font-heading text-base">
-                <GraduationCap className="w-6 h-6" /> Department of Software Engineering
+      {/* ========================================================================= */}
+      {/* 3. ACCOUNT & SECURITY SECTION                                             */}
+      {/* ========================================================================= */}
+      {activeTab === 'account' && (
+        <div className="space-y-6 text-xs">
+          {/* Current User Profile Card */}
+          <Card
+            title="Authenticated User Profile"
+            subtitle="Details of the currently authenticated security personnel account"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Full Name</span>
+                <strong className="text-white text-sm font-bold block mt-1">
+                  {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.username || 'Authenticated User'}
+                </strong>
               </div>
-              <p className="text-slate-300 leading-relaxed">
-                This application is developed as an academic Final Year Project (FYP) for computer lab security management and real-time AI object discrepancy monitoring.
-              </p>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Username / Staff ID</span>
+                <strong className="text-cyan-400 font-mono text-sm font-bold block mt-1">
+                  {user?.username || 'user'}
+                </strong>
+              </div>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Email Address</span>
+                <strong className="text-slate-200 text-sm font-medium block mt-1 truncate">
+                  {user?.email || `${user?.username || 'user'}@se.edu.pk`}
+                </strong>
+              </div>
+
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800">
+                <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Assigned Roles</span>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {user?.roles && user.roles.length > 0 ? (
+                    user.roles.map((r) => (
+                      <Badge key={r} variant="info">{r}</Badge>
+                    ))
+                  ) : (
+                    <Badge variant="success">Active Staff</Badge>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block font-semibold">Project Title:</span>
-                <strong className="text-white font-heading">AI Powered Laboratory Security & Asset Monitoring System</strong>
+            {/* Logout Action Bar */}
+            <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-between">
+              <div>
+                <span className="text-white font-bold block">Terminate Active Session</span>
+                <span className="text-slate-400 text-[11px]">Log out of the security console and purge current JWT credentials.</span>
               </div>
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block font-semibold">System Version:</span>
-                <strong className="text-emerald-400 font-mono font-bold">v1.0.0 Enterprise Release</strong>
+              <Button
+                variant="danger"
+                icon={LogOut}
+                onClick={() => setShowLogoutConfirm(true)}
+              >
+                Log Out
+              </Button>
+            </div>
+          </Card>
+
+          {/* Change Password Form */}
+          <Card
+            title="Change Account Password"
+            subtitle="Update your security login credentials. Password must be at least 6 characters long."
+          >
+            <form onSubmit={handleChangePassword} className="space-y-4 max-w-lg">
+              {passwordError && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{passwordError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-blue-400" /> Current Password
+                </label>
+                <input
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  placeholder="Enter current account password"
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-blue-500 transition font-mono"
+                />
               </div>
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block font-semibold">Student Developer:</span>
-                <strong className="text-white font-heading">Shams Tabraiz</strong>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-emerald-400" /> New Password
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter new password (min. 6 characters)"
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-blue-500 transition font-mono"
+                />
               </div>
-              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800">
-                <span className="text-slate-400 block font-semibold">Project Supervisor:</span>
-                <strong className="text-white font-heading">Dr. Tabraiz Shams</strong>
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-emerald-400" /> Confirm New Password
+                </label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter new password"
+                  className="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs focus:outline-none focus:border-blue-500 transition font-mono"
+                />
+              </div>
+
+              <div className="pt-2">
+                <Button type="submit" loading={changingPassword} icon={Save}>
+                  Update Password
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 4. SYSTEM INFORMATION SECTION (Read-Only)                                */}
+      {/* ========================================================================= */}
+      {activeTab === 'info' && (
+        <div className="space-y-6 text-xs">
+          <Card
+            title="Real-Time System & Facility Telemetry"
+            subtitle="Live database record counts, computer vision configuration, and operational system health metrics"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Application Version */}
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 flex items-start gap-3.5">
+                <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-xl shrink-0">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Application Version</span>
+                  <strong className="text-white text-sm font-bold block mt-0.5">v1.0.0 Enterprise Release</strong>
+                  <span className="text-slate-500 text-[10px]">FYP Production Build</span>
+                </div>
+              </div>
+
+              {/* YOLO Model */}
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 flex items-start gap-3.5">
+                <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl shrink-0">
+                  <Cpu className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">YOLO Vision Model</span>
+                  <strong className="text-emerald-400 font-mono text-sm font-bold block mt-0.5">YOLOv8 Medium (yolov8m.pt)</strong>
+                  <span className="text-slate-500 text-[10px]">Ultralytics Deep Learning Engine</span>
+                </div>
+              </div>
+
+              {/* Number of Laboratories */}
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 flex items-start gap-3.5">
+                <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl shrink-0">
+                  <Building className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Total Laboratories</span>
+                  <strong className="text-white text-sm font-bold block mt-0.5">
+                    {labsLoading ? 'Loading...' : `${totalLabsCount} Configured Facilities`}
+                  </strong>
+                  <span className="text-slate-500 text-[10px]">Queried from PostgreSQL Lab Data</span>
+                </div>
+              </div>
+
+              {/* Number of Cameras */}
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 flex items-start gap-3.5">
+                <div className="p-2.5 bg-cyan-500/10 text-cyan-400 rounded-xl shrink-0">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Surveillance Cameras</span>
+                  <strong className="text-white text-sm font-bold block mt-0.5">
+                    {camerasLoading ? 'Loading...' : `${totalCamerasCount} Monitored Endpoints`}
+                  </strong>
+                  <span className="text-slate-500 text-[10px]">Queried from PostgreSQL Camera Data</span>
+                </div>
+              </div>
+
+              {/* Active Reference Profiles */}
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 flex items-start gap-3.5">
+                <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl shrink-0">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Active Reference Profiles</span>
+                  <strong className="text-white text-sm font-bold block mt-0.5">
+                    {refLoading ? 'Loading...' : `${activeProfilesCount} Active Baselines`}
+                  </strong>
+                  <span className="text-slate-500 text-[10px]">Baseline Object Quantities</span>
+                </div>
+              </div>
+
+              {/* System & Database Status */}
+              <div className="p-4 bg-slate-950/70 rounded-xl border border-slate-800 flex items-start gap-3.5">
+                <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl shrink-0">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider block font-heading">Database & System Status</span>
+                  <strong className="text-emerald-400 text-sm font-bold block mt-0.5">100% Operational</strong>
+                  <span className="text-slate-500 text-[10px]">PostgreSQL Connected & Healthy</span>
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
+      )}
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-md w-full glass-panel p-6 rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center gap-3 text-red-400">
+              <LogOut className="w-6 h-6" />
+              <h3 className="text-base font-bold text-white font-heading">Confirm Logout</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to log out of the AI Powered Lab Security System? Your active session tokens will be removed.
+            </p>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setShowLogoutConfirm(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                icon={LogOut}
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  logout();
+                }}
+              >
+                Confirm Logout
+              </Button>
+            </div>
+          </motion.div>
+        </div>
       )}
     </PageContainer>
   );

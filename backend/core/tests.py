@@ -88,3 +88,24 @@ class RESTAPILayerTestCase(APITestCase):
         schema_url = reverse("schema")
         response = self.client.get(schema_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_change_password_success(self):
+        self.client.force_authenticate(user=self.user)
+        url = reverse("change_password")
+        data = {"old_password": "Password123!", "new_password": "NewSecretPassword456!"}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["message"], "Password updated successfully.")
+
+        # Re-authenticate with new password
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password("NewSecretPassword456!"))
+
+    def test_change_password_incorrect_old(self):
+        self.client.force_authenticate(user=self.user)
+        url = reverse("change_password")
+        data = {"old_password": "WrongPassword!", "new_password": "NewSecretPassword456!"}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+
